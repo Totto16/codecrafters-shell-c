@@ -1,11 +1,9 @@
-#include <stdio.h>
-#include <stdlib.h>
+#include "./shell.h"
 
 int main(int argc, char *argv[]) {
-  // Flush after every printf
-  setbuf(stdout, NULL);
+  // TODO: parse arguments and invoke script or set options regarding to that
 
-  printf("$ ");
+  ExitCode code = shell_execute_repl();
 
-  return 0;
+  return (int)code;
 }
