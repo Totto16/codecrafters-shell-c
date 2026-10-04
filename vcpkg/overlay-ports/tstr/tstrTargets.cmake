@@ -1,0 +1,8 @@
+add_library(tstr STATIC IMPORTED)
+
+set_target_properties(tstr PROPERTIES
+    IMPORTED_LOCATION
+        "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib/libtstr.a"
+    INTERFACE_INCLUDE_DIRECTORIES
+        "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include"
+)

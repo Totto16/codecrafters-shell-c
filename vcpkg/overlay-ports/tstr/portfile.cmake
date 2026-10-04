@@ -12,3 +12,22 @@ vcpkg_configure_meson(
 vcpkg_install_meson()
 
 vcpkg_copy_pdbs()
+
+include(CMakePackageConfigHelpers)
+
+configure_package_config_file(
+    "${CMAKE_CURRENT_LIST_DIR}/tstrConfig.cmake.in"
+    "${CURRENT_PACKAGES_DIR}/share/tstr/tstrConfig.cmake"
+    INSTALL_DESTINATION share/tstr
+)
+
+write_basic_package_version_file(
+    "${CURRENT_PACKAGES_DIR}/share/tstr/tstrConfigVersion.cmake"
+    VERSION "${VERSION}"
+    COMPATIBILITY SameMajorVersion
+)
+
+file(INSTALL
+    "${CMAKE_CURRENT_LIST_DIR}/tstrTargets.cmake"
+    DESTINATION "${CURRENT_PACKAGES_DIR}/share/tstr"
+)
