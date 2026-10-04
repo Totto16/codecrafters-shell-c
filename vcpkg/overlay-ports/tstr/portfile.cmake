@@ -2,6 +2,7 @@ vcpkg_from_git(
     OUT_SOURCE_PATH SOURCE_PATH
     URL https://github.com/Totto16/tstr.h.git
     REF c7b29108c427223a2b4b45dd16c1aba3d8865f43
+    PATCHES support_c2x_as_c23.patch
 )
 
 vcpkg_configure_meson(
