@@ -1,3 +1,7 @@
 {
-  "dependencies": []
+  "dependencies": [
+    {
+      "name": "tstr"
+    }
+  ]
 }
