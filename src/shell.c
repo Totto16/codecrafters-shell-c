@@ -27,7 +27,7 @@ typedef struct {
 } ShellState;
 
 static void shell_print_prompt(const ShellState *const state) {
-  //TODO: guard this behind a feature flag
+  // TODO: guard this behind a feature flag
   if (state->command_state.exit_code == ExitCodeSuccess) {
     fprintf(stdout, "<ok>");
   } else {
@@ -94,6 +94,9 @@ void shell_repl_step(ShellState *state) {
         ExitCode command_exit_code = builtin.command.invoke(builtin.args);
         set_command_exit_code(state, command_exit_code);
       }
+
+      builtin.command.validator.free(builtin.args);
+
       break;
     }
 
@@ -108,7 +111,10 @@ void shell_repl_step(ShellState *state) {
   }
   case ShellParseDataResultTypeCommandNotFound: {
     int res = fprintf(stderr, TSTR_FMT ": command not found\n",
-                      TSV_FMT_ARGS(parse.data.command_not_found.name));
+                      TSTR_FMT_ARGS(parse.data.command_not_found.name));
+
+    tstr_free(&parse.data.command_not_found.name);
+
     if (res < 0) {
       // TODO: handle res
     }
@@ -119,8 +125,7 @@ void shell_repl_step(ShellState *state) {
     break;
   }
   case ShellParseDataResultTypeError: {
-    int res = fprintf(stderr, "[INTERNAL] " TSTR_FMT "\n",
-                      TSTR_FMT_ARGS(parse.data.error));
+    int res = fprintf(stderr, TSTR_FMT "\n", TSTR_FMT_ARGS(parse.data.error));
     if (res < 0) {
       // TODO: handle res
     }

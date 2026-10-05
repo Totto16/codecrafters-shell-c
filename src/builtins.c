@@ -45,7 +45,7 @@ exit_parse_arguments(const ShellArguments *args) {
 
   return (ShellParseArgumentsResult){
       .is_ok = false,
-      .data = {.error = TSTR_LIT("Too many arguments for exit")}};
+      .data = {.error = TSTR_LIT("exit: too many arguments")}};
 }
 
 static void exit_free_arguments(shell_dynamic_args args) { free(args); }
@@ -133,7 +133,29 @@ echo_parse_arguments(const ShellArguments *args) {
   RETURN_ARGUMENT(EchoData, echo_data);
 }
 
-static void echo_free_arguments(shell_dynamic_args args) { // TODO
+static void free_shell_argument(EchoArgument *arg) {
+  tstr_free(&(arg->parsed));
+}
+
+static void free_echo_arguments(EchoArguments *args) {
+
+  for (size_t i = 0; i < TVEC_LENGTH(EchoArgument, *args); ++i) {
+
+    EchoArgument *arg = TVEC_GET_AT_MUT(EchoArgument, args, i);
+
+    free_shell_argument(arg);
+  }
+
+  TVEC_FREE(EchoArgument, args);
+}
+
+static void echo_free_arguments(shell_dynamic_args args) {
+
+  EchoData *echo_data = args;
+
+  free_echo_arguments(&(echo_data->args));
+
+  free(args);
 }
 
 static ExitCode echo_invoke(shell_dynamic_args args) {
@@ -206,7 +228,7 @@ static tstr echo_help(void) {
 
 const static BuiltinCommand builtin_function_echo = {
     .name = TSTR_STATIC_LIT("echo"),
-    .validator = echo_parse_arguments,
+    .validator = {.parse = echo_parse_arguments, .free = echo_free_arguments},
     .invoke = echo_invoke,
     .help = echo_help,
 };
@@ -229,7 +251,7 @@ static tstr type_help(void) { return TSTR_LIT("TODO"); }
 
 const static BuiltinCommand builtin_function_type = {
     .name = TSTR_STATIC_LIT("type"),
-    .validator = type_parse_arguments,
+    .validator = {.parse = type_parse_arguments, .free = type_free_arguments},
     .invoke = type_invoke,
     .help = type_help,
 };

@@ -11,7 +11,7 @@ typedef enum : uint8_t {
 } ShellParseDataResultType;
 
 typedef struct {
-  tstr_view name;
+  tstr name;
 } ShellCommandNotFound;
 
 typedef enum : uint8_t {

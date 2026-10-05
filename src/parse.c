@@ -75,6 +75,22 @@ static ParsedProgram shell_parse_input(tstr_view input) {
   return program;
 }
 
+static void free_shell_argument(ShellArgument *arg) {
+  tstr_free(&(arg->parsed));
+}
+
+static void free_shell_arguments(ShellArguments *args) {
+
+  for (size_t i = 0; i < TVEC_LENGTH(ShellArgument, *args); ++i) {
+
+    ShellArgument *arg = TVEC_GET_AT_MUT(ShellArgument, args, i);
+
+    free_shell_argument(arg);
+  }
+
+  TVEC_FREE(ShellArgument, args);
+}
+
 ShellParseDataResult shell_parse_data(tstr_view input) {
 
   ParsedProgram program = shell_parse_input(input);
@@ -104,7 +120,7 @@ ShellParseDataResult shell_parse_data(tstr_view input) {
       if (args_res.data.args == NULL) {
         return (ShellParseDataResult){
             .type = ShellParseDataResultTypeError,
-            .data = {.error = TSTR_LIT("Parse error")}};
+            .data = {.error = TSTR_LIT("[INTERNAL] Parse error")}};
       }
 
       ShellCommandBuiltin builtin_args = {.command = command,
@@ -118,7 +134,9 @@ ShellParseDataResult shell_parse_data(tstr_view input) {
     }
   }
 
+  free_shell_arguments(&program.args);
+
   return (ShellParseDataResult){
       .type = ShellParseDataResultTypeCommandNotFound,
-      .data = {.command_not_found = {.name = program.program.original}}};
+      .data = {.command_not_found = {.name = prog_name}}};
 }
