@@ -12,3 +12,6 @@ target_link_libraries(shell PRIVATE readline)
 
 find_package(tstr CONFIG REQUIRED)
 target_link_libraries(shell PRIVATE tstr)
+
+find_package(tvec CONFIG REQUIRED)
+target_link_libraries(shell PRIVATE tvec)

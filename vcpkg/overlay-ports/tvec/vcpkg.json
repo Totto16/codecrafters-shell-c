@@ -1,0 +1,10 @@
+{
+  "name": "tvec",
+  "version": "1.0.3",
+  "dependencies": [
+    {
+      "name": "vcpkg-tool-meson",
+      "host": true
+    }
+  ]
+}
