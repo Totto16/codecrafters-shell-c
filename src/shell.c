@@ -107,6 +107,9 @@ void shell_repl_step(ShellState *state) {
       break;
     }
     }
+
+    free_shell_arguments(&parse.data.command.args);
+
     break;
   }
   case ShellParseDataResultTypeCommandNotFound: {

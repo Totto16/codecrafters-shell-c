@@ -79,7 +79,7 @@ static void free_shell_argument(ShellArgument *arg) {
   tstr_free(&(arg->parsed));
 }
 
-static void free_shell_arguments(ShellArguments *args) {
+void free_shell_arguments(ShellArguments *args) {
 
   for (size_t i = 0; i < TVEC_LENGTH(ShellArgument, *args); ++i) {
 
