@@ -9,6 +9,8 @@ typedef enum : uint8_t {
   ExitCodeGenericError = 1,
   //
   ExitCodeOOM = 13,
+  //
+  ExitCodeCommandNotFound = 127
 } ExitCode;
 
 ExitCode shell_execute_repl(void);

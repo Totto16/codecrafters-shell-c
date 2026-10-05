@@ -7,22 +7,35 @@
 
 #include <tstr/tstr.h>
 
+#define RETURNS_VOID (void)
+
 static void shell_setup_repl() {
   // Flush after every printf
-  setbuf(stdout, NULL);
+  RETURNS_VOID setbuf(stdout, NULL);
 }
+
+typedef struct {
+  ExitCode exit_code;
+} CommandState;
 
 typedef struct {
   bool alive;
   ExitCode result;
+  CommandState command_state;
 } ShellState;
 
 static void shell_print_prompt(const ShellState *const state) {
-  fprintf(stdout, "$ ");
+  int res = fprintf(stdout, "$ ");
+  if (res < 0) {
+    // TODO report internal failure
+  }
 }
 
 static void shell_print_error(const char *error) {
-  fprintf(stderr, "%s\n", error);
+  int res = fprintf(stderr, "%s\n", error);
+  if (res < 0) {
+    // TODO report internal failure
+  }
 }
 
 typedef struct {
@@ -31,7 +44,7 @@ typedef struct {
 } ShellInputOkResult;
 
 static void free_shell_input_ok_result(ShellInputOkResult ok) {
-  free(ok.raw_data);
+  RETURNS_VOID free(ok.raw_data);
 }
 
 typedef struct {
@@ -69,7 +82,7 @@ static ShellInputResult shell_get_input(void) {
         // return the data up until now
         break;
       } else if (ferror(stdin) != 0) {
-        free(data);
+        RETURNS_VOID free(data);
         // TODO: print or return a more detailed error message
         return (ShellInputResult){.is_ok = false,
                                   .data = {.err = ExitCodeGenericError}};
@@ -197,21 +210,27 @@ static void shell_exit(ShellState *state, ExitCode code) {
   state->result = code;
 }
 
+static void set_command_exit_code(ShellState *state, ExitCode code) {
+  state->command_state.exit_code = code;
+}
+
 ExitCode shell_execute_repl(void) {
 
   ShellState state = {
       .alive = true,
       .result = ExitCodeSuccess,
+      .command_state = {.exit_code = ExitCodeSuccess},
+
   };
 
   while (state.alive) {
-    shell_print_prompt(&state);
+    RETURNS_VOID shell_print_prompt(&state);
     ShellInputResult input = shell_get_input();
 
     if (!input.is_ok) {
-      shell_exit(&state, input.data.err);
+      RETURNS_VOID shell_exit(&state, input.data.err);
 
-      shell_print_error("Can't read input");
+      RETURNS_VOID shell_print_error("Can't read input");
       break;
     }
 
@@ -227,17 +246,21 @@ ExitCode shell_execute_repl(void) {
         switch (builtin) {
         case ShellBuiltinCommandExit: {
           // TODO: get and validate arguments
-          shell_exit(&state, ExitCodeSuccess);
+          RETURNS_VOID shell_exit(&state, ExitCodeSuccess);
           break;
         }
         case ShellBuiltinCommandEcho: {
-          fprintf(stdout, TSTR_FMT "\n", TSV_FMT_ARGS(command.args.all));
+          int res =
+              fprintf(stdout, TSTR_FMT "\n", TSV_FMT_ARGS(command.args.all));
+          set_command_exit_code(&state, res < 0 ? ExitCodeGenericError
+                                                : ExitCodeSuccess);
           break;
         }
         default: {
-          shell_exit(&state, ExitCodeGenericError);
+          RETURNS_VOID shell_exit(&state, ExitCodeGenericError);
 
-          shell_print_error("[INTERNAL] Invalid builtin command type");
+          RETURNS_VOID shell_print_error(
+              "[INTERNAL] Invalid builtin command type");
           break;
         }
         }
@@ -245,28 +268,32 @@ ExitCode shell_execute_repl(void) {
         break;
       }
       default: {
-        shell_exit(&state, ExitCodeGenericError);
+        RETURNS_VOID shell_exit(&state, ExitCodeGenericError);
 
-        shell_print_error("[INTERNAL] Invalid command type");
+        RETURNS_VOID shell_print_error("[INTERNAL] Invalid command type");
         break;
       }
       }
       break;
     }
     case ShellParseDataResultTypeCommandNotFound: {
-      fprintf(stderr, TSTR_FMT ": command not found\n",
-              TSV_FMT_ARGS(parse.data.command_not_found.name));
+      int res = fprintf(stderr, TSTR_FMT ": command not found\n",
+                        TSV_FMT_ARGS(parse.data.command_not_found.name));
+      if (res < 0) {
+        // TODO: handle res
+      }
+      set_command_exit_code(&state, ExitCodeCommandNotFound);
       break;
     }
     default: {
-      shell_exit(&state, ExitCodeGenericError);
+      RETURNS_VOID shell_exit(&state, ExitCodeGenericError);
 
-      shell_print_error("[INTERNAL] Invalid parse result");
+      RETURNS_VOID shell_print_error("[INTERNAL] Invalid parse result");
       break;
     }
     }
 
-    free_shell_input_ok_result(data);
+    RETURNS_VOID free_shell_input_ok_result(data);
   }
 
   return state.result;
