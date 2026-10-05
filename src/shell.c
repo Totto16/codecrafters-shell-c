@@ -134,13 +134,20 @@ typedef enum : uint8_t {
 
 typedef enum : uint8_t {
   ShellBuiltinCommandExit = 0,
+  ShellBuiltinCommandEcho,
 } ShellBuiltinCommand;
+
+// TODO: support multiple
+typedef struct {
+  tstr_view all;
+} ShellArguments;
 
 typedef struct {
   ShellCommandType type;
   union {
     ShellBuiltinCommand builtin;
   } data;
+  ShellArguments args;
 } ShellCommand;
 
 typedef struct {
@@ -162,7 +169,22 @@ static ShellParseDataResult shell_parse_data(ShellInputOkResult input) {
     return (ShellParseDataResult){
         .type = ShellParseDataResultTypeCommand,
         .data = {.command = {.type = ShellCommandTypeBuiltin,
-                             .data = {.builtin = ShellBuiltinCommandExit}}}};
+                             .data = {.builtin = ShellBuiltinCommandExit},
+                             .args = {.all = TSTR_TSV("")}}}};
+  }
+
+  // TODO: better detection of echo and it's arguments
+  if (tstr_view_starts_with(input.data, "echo")) {
+    ShellArguments args = {.all = TSTR_TSV("")};
+    if (tstr_view_starts_with(input.data, "echo ")) {
+      args = (ShellArguments){.all = tstr_sub_until_end(input.data, 5)};
+    }
+
+    return (ShellParseDataResult){
+        .type = ShellParseDataResultTypeCommand,
+        .data = {.command = {.type = ShellCommandTypeBuiltin,
+                             .data = {.builtin = ShellBuiltinCommandEcho},
+                             .args = args}}};
   }
 
   return (ShellParseDataResult){
@@ -206,6 +228,10 @@ ExitCode shell_execute_repl(void) {
         case ShellBuiltinCommandExit: {
           // TODO: get and validate arguments
           shell_exit(&state, ExitCodeSuccess);
+          break;
+        }
+        case ShellBuiltinCommandEcho: {
+          fprintf(stdout, TSTR_FMT "\n", TSV_FMT_ARGS(command.args.all));
           break;
         }
         default: {
