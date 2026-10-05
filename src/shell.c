@@ -128,9 +128,19 @@ typedef struct {
   tstr_view name;
 } ShellCommandNotFound;
 
+typedef enum : uint8_t {
+  ShellCommandTypeBuiltin = 0,
+} ShellCommandType;
+
+typedef enum : uint8_t {
+  ShellBuiltinCommandExit = 0,
+} ShellBuiltinCommand;
+
 typedef struct {
-  // TODO
-  int todo;
+  ShellCommandType type;
+  union {
+    ShellBuiltinCommand builtin;
+  } data;
 } ShellCommand;
 
 typedef struct {
@@ -145,9 +155,24 @@ static ShellParseDataResult shell_parse_data(ShellInputOkResult input) {
 
   // TODO: parse the data for real
 
+  // TODO: proper parsing
+  // TODO: '"exit"' should also resolve to this and 'exit 12' also, but with
+  // arguments
+  if (tstr_view_eq(input.data, "exit")) {
+    return (ShellParseDataResult){
+        .type = ShellParseDataResultTypeCommand,
+        .data = {.command = {.type = ShellCommandTypeBuiltin,
+                             .data = {.builtin = ShellBuiltinCommandExit}}}};
+  }
+
   return (ShellParseDataResult){
       .type = ShellParseDataResultTypeCommandNotFound,
       .data = {.command_not_found = {.name = input.data}}};
+}
+
+static void shell_exit(ShellState *state, ExitCode code) {
+  state->alive = false;
+  state->result = code;
 }
 
 ExitCode shell_execute_repl(void) {
@@ -162,8 +187,7 @@ ExitCode shell_execute_repl(void) {
     ShellInputResult input = shell_get_input();
 
     if (!input.is_ok) {
-      state.alive = false;
-      state.result = input.data.err;
+      shell_exit(&state, input.data.err);
 
       shell_print_error("Can't read input");
       break;
@@ -174,10 +198,33 @@ ExitCode shell_execute_repl(void) {
 
     switch (parse.type) {
     case ShellParseDataResultTypeCommand: {
-      state.alive = false;
-      state.result = ExitCodeGenericError;
+      const ShellCommand command = parse.data.command;
+      switch (command.type) {
+      case ShellCommandTypeBuiltin: {
+        const ShellBuiltinCommand builtin = command.data.builtin;
+        switch (builtin) {
+        case ShellBuiltinCommandExit: {
+          // TODO: get and validate arguments
+          shell_exit(&state, ExitCodeSuccess);
+          break;
+        }
+        default: {
+          shell_exit(&state, ExitCodeGenericError);
 
-      shell_print_error("[INTERNAL] Not Implemented yet");
+          shell_print_error("[INTERNAL] Invalid builtin command type");
+          break;
+        }
+        }
+
+        break;
+      }
+      default: {
+        shell_exit(&state, ExitCodeGenericError);
+
+        shell_print_error("[INTERNAL] Invalid command type");
+        break;
+      }
+      }
       break;
     }
     case ShellParseDataResultTypeCommandNotFound: {
@@ -186,8 +233,7 @@ ExitCode shell_execute_repl(void) {
       break;
     }
     default: {
-      state.alive = false;
-      state.result = ExitCodeGenericError;
+      shell_exit(&state, ExitCodeGenericError);
 
       shell_print_error("[INTERNAL] Invalid parse result");
       break;
