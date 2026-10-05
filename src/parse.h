@@ -43,3 +43,5 @@ typedef struct {
 ShellParseDataResult shell_parse_data(tstr_view input);
 
 void free_shell_arguments(ShellArguments *args);
+
+void free_shell_command_not_found(ShellCommandNotFound *found);

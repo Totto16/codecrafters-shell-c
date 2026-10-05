@@ -79,6 +79,11 @@ static void free_shell_argument(ShellArgument *arg) {
   tstr_free(&(arg->parsed));
 }
 
+static void free_parsed_program(ParsedProgram *program) {
+  free_shell_arguments(&(program->args));
+  free_shell_argument(&(program->program));
+}
+
 void free_shell_arguments(ShellArguments *args) {
 
   for (size_t i = 0; i < TVEC_LENGTH(ShellArgument, *args); ++i) {
@@ -91,33 +96,41 @@ void free_shell_arguments(ShellArguments *args) {
   TVEC_FREE(ShellArgument, args);
 }
 
+void free_shell_command_not_found(ShellCommandNotFound *found) {
+  tstr_free(&(found->name));
+}
+
 ShellParseDataResult shell_parse_data(tstr_view input) {
 
   ParsedProgram program = shell_parse_input(input);
 
   if (tstr_len(&program.program.parsed) == 0) {
-
     return (ShellParseDataResult){.type = ShellParseDataResultEmpty,
                                   .data = {}};
   }
 
-  tstr prog_name = program.program.parsed;
+  const tstr *const prog_name = &program.program.parsed;
+  const ShellArguments *const prog_args = &program.args;
 
   for (size_t i = 0; i < BUILTIN_FUNCTION_COUNT; ++i) {
 
     BuiltinCommand command = builtin_functions[i];
 
-    if (tstr_eq_static_tstr(&prog_name, command.name)) {
+    if (tstr_eq_static_tstr(prog_name, command.name)) {
 
-      ShellParseArgumentsResult args_res =
-          command.validator.parse(&program.args);
+      ShellParseArgumentsResult args_res = command.validator.parse(prog_args);
 
       if (!args_res.is_ok) {
+        free_parsed_program(&program);
+
+        // move args_res.data.error ownership to the ShellParseDataResult struct
         return (ShellParseDataResult){.type = ShellParseDataResultTypeError,
                                       .data = {.error = args_res.data.error}};
       }
 
       if (args_res.data.args == NULL) {
+        free_parsed_program(&program);
+
         return (ShellParseDataResult){
             .type = ShellParseDataResultTypeError,
             .data = {.error = TSTR_LIT("[INTERNAL] Parse error")}};
@@ -125,6 +138,8 @@ ShellParseDataResult shell_parse_data(tstr_view input) {
 
       ShellCommandBuiltin builtin_args = {.command = command,
                                           .args = args_res.data.args};
+
+      free_shell_argument(&program.program);
 
       return (ShellParseDataResult){
           .type = ShellParseDataResultTypeCommand,
@@ -138,5 +153,5 @@ ShellParseDataResult shell_parse_data(tstr_view input) {
 
   return (ShellParseDataResult){
       .type = ShellParseDataResultTypeCommandNotFound,
-      .data = {.command_not_found = {.name = prog_name}}};
+      .data = {.command_not_found = {.name = program.program.parsed}}};
 }

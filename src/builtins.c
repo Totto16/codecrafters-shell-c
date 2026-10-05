@@ -44,8 +44,7 @@ exit_parse_arguments(const ShellArguments *args) {
   }
 
   return (ShellParseArgumentsResult){
-      .is_ok = false,
-      .data = {.error = TSTR_LIT("exit: too many arguments")}};
+      .is_ok = false, .data = {.error = TSTR_LIT("exit: too many arguments")}};
 }
 
 static void exit_free_arguments(shell_dynamic_args args) { free(args); }
@@ -54,8 +53,8 @@ ExitCode exit_invoke(shell_dynamic_args args) {
   return ExitCodeImplementationError;
 }
 
-static tstr exit_help(void) {
-  return TSTR_LIT(
+static tstr_static exit_help(void) {
+  return TSTR_STATIC_LIT(
       "exit: exit [n]\n"
       "Exit the shell.\n"
       "\n"
@@ -183,8 +182,8 @@ static ExitCode echo_invoke(shell_dynamic_args args) {
   return ExitCodeSuccess;
 }
 
-static tstr echo_help(void) {
-  return TSTR_LIT(
+static tstr_static echo_help(void) {
+  return TSTR_STATIC_LIT(
       "echo: echo [-neE] [arg ...]\n"
       "Write arguments to the standard output."
       "\n"
@@ -247,7 +246,7 @@ static ExitCode type_invoke(shell_dynamic_args args) {
   return ExitCodeGenericError;
 }
 
-static tstr type_help(void) { return TSTR_LIT("TODO"); }
+static tstr_static type_help(void) { return TSTR_STATIC_LIT("TODO"); }
 
 const static BuiltinCommand builtin_function_type = {
     .name = TSTR_STATIC_LIT("type"),

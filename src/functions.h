@@ -32,4 +32,4 @@ typedef ShellParseArgumentsResult (*shell_parse_arguments)(
 
 typedef void (*shell_free_arguments)(shell_dynamic_args args);
 
-typedef tstr (*shell_get_help_text)(void);
+typedef tstr_static (*shell_get_help_text)(void);

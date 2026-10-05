@@ -116,7 +116,7 @@ void shell_repl_step(ShellState *state) {
     int res = fprintf(stderr, TSTR_FMT ": command not found\n",
                       TSTR_FMT_ARGS(parse.data.command_not_found.name));
 
-    tstr_free(&parse.data.command_not_found.name);
+    free_shell_command_not_found(&parse.data.command_not_found);
 
     if (res < 0) {
       // TODO: handle res
@@ -129,6 +129,8 @@ void shell_repl_step(ShellState *state) {
   }
   case ShellParseDataResultTypeError: {
     int res = fprintf(stderr, TSTR_FMT "\n", TSTR_FMT_ARGS(parse.data.error));
+    tstr_free(&parse.data.error);
+
     if (res < 0) {
       // TODO: handle res
     }
