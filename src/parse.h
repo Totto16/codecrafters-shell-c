@@ -7,6 +7,7 @@ typedef enum : uint8_t {
   ShellParseDataResultTypeError = 0,
   ShellParseDataResultTypeCommand,
   ShellParseDataResultTypeCommandNotFound,
+  ShellParseDataResultEmpty, 
 } ShellParseDataResultType;
 
 typedef struct {

@@ -23,7 +23,7 @@ static ParsedProgram shell_parse_input(tstr_view input) {
 
     const char character = input.data[i];
 
-    if (isspace(character)) {
+    if (isspace(character) != 0) {
       if (i == 0) {
         // TODO: should we support leading whitespace
         exit(121);
@@ -50,7 +50,25 @@ static ParsedProgram shell_parse_input(tstr_view input) {
         }
       }
 
-      start = i;
+      start = i + 1;
+    }
+  }
+
+  if (start < input.len) {
+    tstr_view orig =
+        (tstr_view){.data = input.data + start, .len = input.len - start};
+    ShellArgument argument = {.original = orig, .parsed = tstr_from_view(orig)};
+
+    if (first) {
+      program.program = argument;
+      first = false;
+    } else {
+      TvecResult res = TVEC_PUSH(ShellArgument, &(program.args), argument);
+
+      if (res != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
+        // TODO
+        exit(16);
+      }
     }
   }
 
@@ -62,8 +80,9 @@ ShellParseDataResult shell_parse_data(tstr_view input) {
   ParsedProgram program = shell_parse_input(input);
 
   if (tstr_len(&program.program.parsed) == 0) {
-    return (ShellParseDataResult){.type = ShellParseDataResultTypeError,
-                                  .data = {.error = TSTR_LIT("Parse error")}};
+
+    return (ShellParseDataResult){.type = ShellParseDataResultEmpty,
+                                  .data = {}};
   }
 
   tstr prog_name = program.program.parsed;
@@ -101,5 +120,5 @@ ShellParseDataResult shell_parse_data(tstr_view input) {
 
   return (ShellParseDataResult){
       .type = ShellParseDataResultTypeCommandNotFound,
-      .data = {.command_not_found = {.name = input.data}}};
+      .data = {.command_not_found = {.name = program.program.original}}};
 }

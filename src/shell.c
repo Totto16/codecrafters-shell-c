@@ -27,6 +27,12 @@ typedef struct {
 } ShellState;
 
 static void shell_print_prompt(const ShellState *const state) {
+  //TODO: guard this behind a feature flag
+  if (state->command_state.exit_code == ExitCodeSuccess) {
+    fprintf(stdout, "<ok>");
+  } else {
+    fprintf(stdout, "<%u>", state->command_state.exit_code);
+  }
   int res = fprintf(stdout, "$ ");
   if (res < 0) {
     // TODO report internal failure
@@ -90,6 +96,7 @@ void shell_repl_step(ShellState *state) {
       }
       break;
     }
+
     default: {
       RETURNS_VOID shell_exit(state, ExitCodeGenericError);
 
@@ -106,6 +113,18 @@ void shell_repl_step(ShellState *state) {
       // TODO: handle res
     }
     set_command_exit_code(state, ExitCodeCommandNotFound);
+    break;
+  }
+  case ShellParseDataResultEmpty: {
+    break;
+  }
+  case ShellParseDataResultTypeError: {
+    int res = fprintf(stderr, "[INTERNAL] " TSTR_FMT "\n",
+                      TSTR_FMT_ARGS(parse.data.error));
+    if (res < 0) {
+      // TODO: handle res
+    }
+    set_command_exit_code(state, ExitCodeGenericError);
     break;
   }
   default: {
