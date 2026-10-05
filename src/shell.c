@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <tstr/tstr.h>
+
 static void shell_setup_repl() {
   // Flush after every printf
   setbuf(stdout, NULL);
@@ -24,9 +26,13 @@ static void shell_print_error(const char *error) {
 }
 
 typedef struct {
-  char *data; // TODO: use tstr which has length instead of needing strlen()
-              // everytime we parse
+  char *raw_data;
+  tstr_view data;
 } ShellInputOkResult;
+
+static void free_shell_input_ok_result(ShellInputOkResult ok) {
+  free(ok.raw_data);
+}
 
 typedef struct {
   bool is_ok;
@@ -40,17 +46,17 @@ typedef struct {
 
 static ShellInputResult shell_get_input(void) {
 
-  ShellInputOkResult result = {.data = NULL};
+  char *data = NULL;
 
-  result.data = malloc(SHELL_INPUT_BUFFER_SIZE + 1);
+  data = malloc(SHELL_INPUT_BUFFER_SIZE + 1);
 
-  if (result.data == NULL) {
+  if (data == NULL) {
     return (ShellInputResult){.is_ok = false, .data = {.err = ExitCodeOOM}};
   }
 
-  result.data[0] = '\0';
+  data[0] = '\0';
 
-  char *current_buffer_start = result.data;
+  char *current_buffer_start = data;
   size_t current_buffer_size = SHELL_INPUT_BUFFER_SIZE + 1;
 
   while (true) {
@@ -63,7 +69,7 @@ static ShellInputResult shell_get_input(void) {
         // return the data up until now
         break;
       } else if (ferror(stdin) != 0) {
-        free(result.data);
+        free(data);
         // TODO: print or return a more detailed error message
         return (ShellInputResult){.is_ok = false,
                                   .data = {.err = ExitCodeGenericError}};
@@ -81,23 +87,21 @@ static ShellInputResult shell_get_input(void) {
       // otherwise we have more data
       const char last_char = current_buffer_start[SHELL_INPUT_BUFFER_SIZE];
       if (last_char == '\n') {
-        // TODO: use tstr view and just chop the last byte off;
-        current_buffer_start[SHELL_INPUT_BUFFER_SIZE] = '\0';
         break;
       }
 
       // we have more data
       current_buffer_size += SHELL_INPUT_BUFFER_SIZE;
-      char *new_buffer = realloc(result.data, current_buffer_size);
+      char *new_buffer = realloc(data, current_buffer_size);
 
       if (new_buffer == NULL) {
-        free(result.data);
+        free(data);
         return (ShellInputResult){.is_ok = false, .data = {.err = ExitCodeOOM}};
       }
 
-      current_buffer_start = new_buffer + (current_buffer_start - result.data) +
+      current_buffer_start = new_buffer + (current_buffer_start - data) +
                              (SHELL_INPUT_BUFFER_SIZE);
-      result.data = new_buffer;
+      data = new_buffer;
 
     } else {
       // we have encountered a \n
@@ -105,14 +109,14 @@ static ShellInputResult shell_get_input(void) {
     }
   }
 
-  size_t result_len = strlen(result.data);
-  const char last_char = result.data[result_len - 1];
-  if (last_char == '\n') {
-    // TODO: use tstr view and just chop the last byte off;
-    result.data[result_len - 1] = '\0';
+  tstr_view view = tstr_view_from(data);
+
+  if (tstr_view_ends_with(view, "\n")) {
+    view = tstr_sub(view, 0, view.len - 1);
   }
 
-  return (ShellInputResult){.is_ok = true, .data = {.ok = result}};
+  return (ShellInputResult){.is_ok = true,
+                            .data = {.ok = {.data = view, .raw_data = data}}};
 }
 
 typedef enum : uint8_t {
@@ -121,8 +125,7 @@ typedef enum : uint8_t {
 } ShellParseDataResultType;
 
 typedef struct {
-  // TODO: use tstr
-  char *name;
+  tstr_view name;
 } ShellCommandNotFound;
 
 typedef struct {
@@ -178,8 +181,8 @@ ExitCode shell_execute_repl(void) {
       break;
     }
     case ShellParseDataResultTypeCommandNotFound: {
-      fprintf(stderr, "%s: command not found\n",
-              parse.data.command_not_found.name);
+      fprintf(stderr, TSTR_FMT ": command not found\n",
+              TSV_FMT_ARGS(parse.data.command_not_found.name));
       break;
     }
     default: {
@@ -190,6 +193,8 @@ ExitCode shell_execute_repl(void) {
       break;
     }
     }
+
+    free_shell_input_ok_result(data);
   }
 
   return state.result;
