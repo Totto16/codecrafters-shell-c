@@ -26,14 +26,20 @@ typedef struct {
   CommandState command_state;
 } ShellState;
 
+static tstr shell_get_prompt(void) {
+
+  // TODO. support setting the prompt dynamically
+
+  return TSTR_LIT("$");
+}
+
 static void shell_print_prompt(const ShellState *const state) {
-  // TODO: guard this behind a feature flag
-  if (state->command_state.exit_code == ExitCodeSuccess) {
-    fprintf(stdout, "<ok>");
-  } else {
-    fprintf(stdout, "<%u>", state->command_state.exit_code);
-  }
-  int res = fprintf(stdout, "$ ");
+  tstr prompt = shell_get_prompt();
+
+  int res = fprintf(stdout, TSTR_FMT " ", TSTR_FMT_ARGS(prompt));
+
+  tstr_free(&prompt);
+
   if (res < 0) {
     // TODO report internal failure
   }

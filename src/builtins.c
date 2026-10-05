@@ -163,6 +163,13 @@ static ExitCode echo_invoke(shell_dynamic_args args) {
 
   for (size_t i = 0; i < TVEC_LENGTH(EchoArgument, echo_data->args); ++i) {
 
+    if (i != 0) {
+      int res = fprintf(stdout, " ");
+      if (res < 0) {
+        return ExitCodeGenericError;
+      }
+    }
+
     const EchoArgument *const arg =
         TVEC_GET_AT(EchoArgument, &(echo_data->args), i);
 
