@@ -10,11 +10,13 @@ void free_shell_input_ok_result(ShellInputOkResult ok) {
 ShellInputResult shell_get_input(void) {
 
   char *data = NULL;
+  bool end = false;
 
   data = malloc(SHELL_INPUT_BUFFER_SIZE + 1);
 
   if (data == NULL) {
-    return (ShellInputResult){.is_ok = false, .data = {.err = ExitCodeOOM}};
+    return (ShellInputResult){.type = ShellInputResultTypeError,
+                              .data = {.err = ExitCodeOOM}};
   }
 
   data[0] = '\0';
@@ -29,16 +31,15 @@ ShellInputResult shell_get_input(void) {
 
     if (get_result == NULL) {
       if (feof(stdin) != 0) {
-        // return the data up until now
-        break;
+        return (ShellInputResult){.type = ShellInputResultTypeEOF, .data = {}};
       } else if (ferror(stdin) != 0) {
         RETURNS_VOID free(data);
         // TODO: print or return a more detailed error message
-        return (ShellInputResult){.is_ok = false,
+        return (ShellInputResult){.type = ShellInputResultTypeError,
                                   .data = {.err = ExitCodeGenericError}};
       } else {
         // TODO: print or return a more detailed error message
-        return (ShellInputResult){.is_ok = false,
+        return (ShellInputResult){.type = ShellInputResultTypeError,
                                   .data = {.err = ExitCodeGenericError}};
       }
     }
@@ -59,7 +60,8 @@ ShellInputResult shell_get_input(void) {
 
       if (new_buffer == NULL) {
         free(data);
-        return (ShellInputResult){.is_ok = false, .data = {.err = ExitCodeOOM}};
+        return (ShellInputResult){.type = ShellInputResultTypeError,
+                                  .data = {.err = ExitCodeOOM}};
       }
 
       current_buffer_start = new_buffer + (current_buffer_start - data) +
@@ -67,7 +69,12 @@ ShellInputResult shell_get_input(void) {
       data = new_buffer;
 
     } else {
-      // we have encountered a \n
+      // if the last byte is NOT a \n, we have a valid input but EOF, so after
+      // this command we are done
+      const char last_char = current_buffer_start[read_bytes - 1];
+      if (last_char != '\n') {
+        end = true;
+      }
       break;
     }
   }
@@ -78,6 +85,7 @@ ShellInputResult shell_get_input(void) {
     view = tstr_sub(view, 0, view.len - 1);
   }
 
-  return (ShellInputResult){.is_ok = true,
-                            .data = {.ok = {.data = view, .raw_data = data}}};
+  return (ShellInputResult){
+      .type = ShellInputResultTypeOk,
+      .data = {.ok = {.data = view, .raw_data = data, .end = end}}};
 }

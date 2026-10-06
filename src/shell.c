@@ -74,8 +74,17 @@ void shell_repl_step(ShellState *state) {
   }
   ShellInputResult input = shell_get_input();
 
-  if (!input.is_ok) {
-    RETURNS_VOID shell_exit(state, input.data.err);
+  if (input.type == ShellInputResultTypeEOF) {
+    RETURNS_VOID shell_exit(state, state->command_state.exit_code);
+    return;
+  }
+
+  if (input.type != ShellInputResultTypeOk) {
+    ExitCode code = ExitCodeGenericError;
+    if (input.type == ShellInputResultTypeError) {
+      code = input.data.err;
+    }
+    RETURNS_VOID shell_exit(state, code);
 
     RETURNS_VOID shell_print_error("Can't read input");
     return;
@@ -164,6 +173,10 @@ void shell_repl_step(ShellState *state) {
     RETURNS_VOID shell_print_error("[INTERNAL] Invalid parse result");
     break;
   }
+  }
+
+  if (data.end) {
+    RETURNS_VOID shell_exit(state, state->command_state.exit_code);
   }
 
   RETURNS_VOID free_shell_input_ok_result(data);
