@@ -3,6 +3,7 @@
 #pragma once
 
 #include "./builtins.h"
+#include "./utils.h"
 
 #include <tstr/tstr.h>
 
@@ -24,6 +25,6 @@ typedef struct {
   } data;
 } CommandType;
 
-CommandType determine_command_type(tstr_view command);
+NODISCARD CommandType determine_command_type(tstr_view command);
 
 void free_executable_data(ExecutableData *data);

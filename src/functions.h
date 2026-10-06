@@ -12,8 +12,8 @@ typedef void *shell_context;
 
 typedef tstr (*shell_fn_get_current_working_directory)(shell_context ctx);
 
-typedef bool (*shell_fn_set_current_working_directory)(shell_context ctx,
-                                                       tstr_view abs_cwd);
+typedef bool (*shell_fn_set_current_working_directory)(
+    shell_context ctx, const tstr *normalized_cwd);
 
 typedef struct {
   bool has_code;

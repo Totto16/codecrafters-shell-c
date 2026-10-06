@@ -4,6 +4,8 @@
 
 #include <stdint.h>
 
+#include "./utils.h"
+
 typedef enum : uint8_t {
   ExitCodeSuccess = 0,
   ExitCodeGenericError = 1,
@@ -15,4 +17,4 @@ typedef enum : uint8_t {
   ExitCodeCommandNotFound = 127
 } ExitCode;
 
-ExitCode shell_execute_repl(void);
+NODISCARD ExitCode shell_execute_repl(void);

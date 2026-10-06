@@ -4,8 +4,9 @@
 
 #include "./functions.h"
 #include "./shell.h"
+#include "./utils.h"
 
-tstr get_executable_path(tstr_view name);
+NODISCARD tstr get_executable_path(tstr_view name);
 
-ExitCode invoke_executable(const tstr *path, const tstr *invoke_name,
-                           const ShellArguments *arguments);
+NODISCARD ExitCode invoke_executable(const tstr *path, const tstr *invoke_name,
+                                     const ShellArguments *arguments);

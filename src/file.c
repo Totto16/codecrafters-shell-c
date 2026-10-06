@@ -86,3 +86,20 @@ tstr path_get_cwd(void) {
     return tstr_null();
   }
 }
+
+
+NODISCARD tstr path_normalize(tstr_view path){
+
+  tstr result = tstr_from("");
+
+  for(size_t i =0; i < path.len;++i){
+    
+
+    
+  }
+
+
+}
+
+NODISCARD bool path_is_normalized(tstr_view path);
+

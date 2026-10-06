@@ -2,6 +2,7 @@
 #pragma once
 
 #include "./builtins.h"
+#include "./utils.h"
 
 typedef enum : uint8_t {
   ShellParseDataResultTypeError = 0,
@@ -47,7 +48,7 @@ typedef struct {
   } data;
 } ShellParseDataResult;
 
-ShellParseDataResult shell_parse_data(tstr_view input);
+NODISCARD ShellParseDataResult shell_parse_data(tstr_view input);
 
 void free_shell_arguments(ShellArguments *args);
 

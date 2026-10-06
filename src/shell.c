@@ -99,26 +99,26 @@ static tstr shell_virtual_fn_get_current_working_directory(shell_context ctx) {
   return tstr_dup(&(state->cwd));
 }
 
-static bool shell_virtual_fn_set_current_working_directory(shell_context ctx,
-                                                           tstr_view abs_cwd) {
+static bool
+shell_virtual_fn_set_current_working_directory(shell_context ctx,
+                                               const tstr *normalized_cwd) {
 
   ShellState *state = ctx;
 
-  bool is_abs = path_is_absolute(abs_cwd);
-
-  if (!is_abs) {
+  if (!path_is_normalized(tstr_as_view(normalized_cwd))) {
     return false;
   }
 
-  bool exists = path_exists_and_is_dir(abs_cwd);
-  if (!exists) {
+  if (!path_is_absolute(tstr_as_view(normalized_cwd))) {
     return false;
   }
 
-  abs_cwd = path_normalize_dir_ending(abs_cwd);
+  if (!path_exists_and_is_dir(tstr_as_view(normalized_cwd))) {
+    return false;
+  }
 
   tstr_free(&(state->cwd));
-  state->cwd = tstr_from_view(abs_cwd);
+  state->cwd = tstr_dup(normalized_cwd);
 
   return true;
 }

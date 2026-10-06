@@ -4,6 +4,7 @@
 #include <tstr/tstr.h>
 
 #include "./shell.h"
+#include "./utils.h"
 
 typedef struct {
   char *raw_data;
@@ -27,4 +28,4 @@ typedef struct {
   } data;
 } ShellInputResult;
 
-ShellInputResult shell_get_input(void);
+NODISCARD ShellInputResult shell_get_input(void);

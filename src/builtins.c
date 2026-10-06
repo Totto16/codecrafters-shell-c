@@ -487,20 +487,31 @@ static void cd_free_arguments(shell_dynamic_args args) { free(args); }
 static ExitCode cd_invoke(shell_dynamic_args args, const ShellHandle shell) {
   CdData *cd_data = args;
 
-  tstr_view normalized_path = cd_data->path;
+  tstr normalized_path = path_normalize(cd_data->path);
 
-  if (!path_is_absolute(normalized_path)) {
-    int res = fprintf(stdout, "cd: " TSTR_FMT ": Not an absolute path\n",
-                      TSV_FMT_ARGS(cd_data->path));
-    if (res < 0) {
-      return ExitCodeGenericError;
-    }
+  if (tstr_is_null(&normalized_path)) {
     return ExitCodeGenericError;
-  } else {
-    normalized_path = path_normalize_dir_ending(normalized_path);
   }
 
-  if (!path_exists_and_is_dir(normalized_path)) {
+  if (!path_is_absolute(tstr_as_view(&normalized_path))) {
+
+    tstr cwd = shell.function.get_current_working_directory(shell.context);
+
+    if (tstr_is_null(&cwd)) {
+      tstr_free(&normalized_path);
+      return ExitCodeGenericError;
+    }
+
+    bool ok = path_make_absolute(&cwd, &normalized_path);
+
+    if (!ok) {
+      tstr_free(&normalized_path);
+      return ExitCodeGenericError;
+    }
+
+  }
+
+  if (!path_exists_and_is_dir(tstr_as_view(&normalized_path))) {
     int res = fprintf(stdout, "cd: " TSTR_FMT ": No such file or directory\n",
                       TSV_FMT_ARGS(cd_data->path));
     if (res < 0) {
@@ -510,7 +521,9 @@ static ExitCode cd_invoke(shell_dynamic_args args, const ShellHandle shell) {
   }
 
   bool ok = shell.function.set_current_working_directory(shell.context,
-                                                         normalized_path);
+                                                         &normalized_path);
+
+  tstr_free(&normalized_path);
 
   if (!ok) {
     return ExitCodeGenericError;
