@@ -16,6 +16,7 @@ typedef struct {
 
 typedef enum : uint8_t {
   ShellCommandTypeBuiltin = 0,
+  ShellCommandTypeExecutable
 } ShellCommandType;
 
 typedef struct {
@@ -24,9 +25,14 @@ typedef struct {
 } ShellCommandBuiltin;
 
 typedef struct {
+  tstr path;
+} ShellCommandExecutable;
+
+typedef struct {
   ShellCommandType type;
   union {
     ShellCommandBuiltin builtin;
+    ShellCommandExecutable executable;
   } data;
   ShellArguments args;
 } ShellCommand;

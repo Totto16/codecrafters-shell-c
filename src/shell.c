@@ -9,6 +9,7 @@
 #include <tstr/tstr.h>
 
 #include "./builtins.h"
+#include "./executable.h"
 #include "./input.h"
 #include "./parse.h"
 
@@ -64,6 +65,10 @@ static void shell_exit(ShellState *state, ExitCode code) {
 
 static void set_command_exit_code(ShellState *state, ExitCode code) {
   state->command_state.exit_code = code;
+}
+
+static void free_shell_command_executable(ShellCommandExecutable *executable) {
+  tstr_free(&(executable->path));
 }
 
 void shell_repl_step(ShellState *state) {
@@ -127,7 +132,17 @@ void shell_repl_step(ShellState *state) {
 
       break;
     }
+    case ShellCommandTypeExecutable: {
+      ShellCommandExecutable executable = command.data.executable;
 
+      ExitCode command_exit_code =
+          invoke_executable(&executable.path, &command.args);
+      set_command_exit_code(state, command_exit_code);
+
+      free_shell_command_executable(&executable);
+
+      break;
+    }
     default: {
       RETURNS_VOID shell_exit(state, ExitCodeGenericError);
 

@@ -4,6 +4,9 @@
 
 #include <tvec/tvec.h>
 
+#include <sys/wait.h>
+#include <unistd.h>
+
 typedef struct {
   tstr_view path;
 } PathDirectory;
@@ -134,4 +137,78 @@ tstr get_executable_path(tstr_view name) {
 
   free_path_directories(&directories);
   return tstr_null();
+}
+
+static void free_execv_args(char **const args) {
+
+  for (size_t i = 0;; ++i) {
+    char *arg = args[i];
+
+    free(arg);
+
+    if (arg == NULL) {
+      break;
+    }
+  }
+
+  free(args);
+}
+
+ExitCode invoke_executable(const tstr *path, const ShellArguments *arguments) {
+  // NOTE: this is synchronous, so no need to lock resources (e.g. stdout,
+  // stderr)
+
+  pid_t pid = fork();
+
+  if (pid == -1) {
+    // TODO: print execute error
+    return ExitCodeGenericError;
+  }
+
+  if (pid == 0) {
+    // Child process: execute the program
+
+    const size_t arguments_length = TVEC_LENGTH(ShellArgument, *arguments);
+
+    char **const args = malloc(sizeof(*args) * (arguments_length + 2));
+
+    {
+      tstr path_dup = tstr_dup(path);
+      args[0] = tstr_take(&path_dup);
+    }
+
+    args[arguments_length + 1] = NULL;
+
+    for (size_t i = 0; i < arguments_length; ++i) {
+      const ShellArgument *arg = TVEC_GET_AT(ShellArgument, arguments, i);
+      tstr arg_dup = tstr_dup(&(arg->parsed));
+      args[i + 1] = tstr_take(&arg_dup);
+    }
+
+    int exec_res = execv(tstr_cstr(path), args);
+
+    // Only reached if exec fails
+    // TODO: print execute error
+    free_execv_args(args);
+    (void)exec_res;
+    return ExitCodeGenericError;
+  }
+
+  // Parent process: wait for child
+  int status;
+  int res = waitpid(pid, &status, 0);
+  if (res < 0) {
+    // TODO: print execute error
+    return ExitCodeGenericError;
+  }
+
+  // TODO: should we return if the process exited with a signal?
+
+  if (WIFEXITED(status)) {
+    uint8_t exit_status = WEXITSTATUS(status);
+    return exit_status;
+  }
+
+  // TODO: print execute error
+  return ExitCodeGenericError;
 }

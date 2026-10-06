@@ -162,9 +162,18 @@ ShellParseDataResult shell_parse_data(tstr_view input) {
                              .args = program.args}}};
   }
   case CommandTypeTypeExecutable: {
+    free_shell_argument(&program.program);
 
-    // TODO
-    break;
+    // we transfer ownership of command_type.data.executable.path to executable,
+    // so no need to free that
+    const ShellCommandExecutable executable = {
+        .path = command_type.data.executable.path};
+
+    return (ShellParseDataResult){
+        .type = ShellParseDataResultTypeCommand,
+        .data = {.command = {.type = ShellCommandTypeExecutable,
+                             .data = {.executable = executable},
+                             .args = program.args}}};
   }
   default: {
     // TODO: report internal error
