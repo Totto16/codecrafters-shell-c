@@ -68,6 +68,7 @@ static void set_command_exit_code(ShellState *state, ExitCode code) {
 }
 
 static void free_shell_command_executable(ShellCommandExecutable *executable) {
+  tstr_free(&(executable->invoke_name));
   tstr_free(&(executable->path));
 }
 
@@ -136,7 +137,7 @@ void shell_repl_step(ShellState *state) {
       ShellCommandExecutable executable = command.data.executable;
 
       ExitCode command_exit_code =
-          invoke_executable(&executable.path, &command.args);
+          invoke_executable(&executable.path, &executable.invoke_name, &command.args);
       set_command_exit_code(state, command_exit_code);
 
       free_shell_command_executable(&executable);

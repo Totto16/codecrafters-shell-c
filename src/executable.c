@@ -154,7 +154,7 @@ static void free_execv_args(char **const args) {
   free(args);
 }
 
-ExitCode invoke_executable(const tstr *path, const ShellArguments *arguments) {
+ExitCode invoke_executable(const tstr *path, const tstr* const invoke_name, const ShellArguments *arguments) {
   // NOTE: this is synchronous, so no need to lock resources (e.g. stdout,
   // stderr)
 
@@ -173,8 +173,8 @@ ExitCode invoke_executable(const tstr *path, const ShellArguments *arguments) {
     char **const args = malloc(sizeof(*args) * (arguments_length + 2));
 
     {
-      tstr path_dup = tstr_dup(path);
-      args[0] = tstr_take(&path_dup);
+      tstr invoke_name_dup = tstr_dup(invoke_name);
+      args[0] = tstr_take(&invoke_name_dup);
     }
 
     args[arguments_length + 1] = NULL;

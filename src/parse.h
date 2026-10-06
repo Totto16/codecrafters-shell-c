@@ -26,6 +26,7 @@ typedef struct {
 
 typedef struct {
   tstr path;
+  tstr invoke_name;
 } ShellCommandExecutable;
 
 typedef struct {
