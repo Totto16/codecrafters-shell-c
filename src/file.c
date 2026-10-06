@@ -16,7 +16,7 @@ bool path_exists_and_is_dir(tstr_view dir) {
     return false;
   }
 
-  return (S_ISDIR(stats.st_mode));
+  return (S_ISDIR(stats.st_mode)) != 0;
 }
 
 tstr path_dir_get_executable(tstr_view dir, tstr_view name) {

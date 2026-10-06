@@ -32,15 +32,14 @@ typedef struct {
   do {                                                                         \
                                                                                \
     if (tstr_view_starts_with(path_view, "/")) {                               \
+      tstr_view normalized = path_view;                                        \
                                                                                \
-      tstr_view orig = path_view;                                              \
-                                                                               \
-      if (tstr_view_ends_with(orig, "/")) {                                    \
-        orig = tstr_sub(orig, 0, orig.len - 1);                                \
+      if (tstr_view_ends_with(normalized, "/")) {                              \
+        normalized = tstr_sub(normalized, 0, normalized.len - 1);              \
       }                                                                        \
                                                                                \
-      if (path_exists_and_is_dir(orig)) {                                      \
-        PathDirectory argument = {.path = orig};                               \
+      if (path_exists_and_is_dir(normalized)) {                                \
+        PathDirectory argument = {.path = normalized};                         \
                                                                                \
         TvecResult res = TVEC_PUSH(PathDirectory, &(directories), argument);   \
                                                                                \
@@ -61,8 +60,12 @@ static PathDirectoriesResult get_path_directories(tstr_view path_env) {
 
   // Note: we remove non existent directories and normalize the directories
   // here (ends without "/", no ".." or symlink normalizing)
-  // NOTE: non absolute paths in the PATH env variable are ignore (e.g.
-  // "./my_relative_dir" or "my_relative_dir")
+
+  // TODO: should we support that?
+  //  NOTE: non absolute paths in the PATH env variable are ignore (e.g.
+  //  "./my_relative_dir" or "my_relative_dir")
+
+  // TODO: should we support "~" expansion
 
   size_t start = 0;
 
@@ -73,7 +76,7 @@ static PathDirectoriesResult get_path_directories(tstr_view path_env) {
 
       if (start != i) {
 
-        tstr_view orig =
+        const tstr_view orig =
             (tstr_view){.data = path_env.data + start, .len = i - start};
 
         ADD_DIR_ARGUMENT(orig);
@@ -83,7 +86,7 @@ static PathDirectoriesResult get_path_directories(tstr_view path_env) {
   }
 
   if (start < path_env.len) {
-    tstr_view orig =
+    const tstr_view orig =
         (tstr_view){.data = path_env.data + start, .len = path_env.len - start};
 
     ADD_DIR_ARGUMENT(orig);
