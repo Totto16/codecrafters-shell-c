@@ -98,10 +98,35 @@ static tstr shell_virtual_fn_get_current_working_directory(shell_context ctx) {
   return tstr_dup(&(state->cwd));
 }
 
+static bool
+shell_virtual_fn_set_current_working_directory(shell_context ctx,
+                                               const tstr *const abs_cwd) {
+
+  ShellState *state = ctx;
+
+  bool is_abs = path_is_absolute(tstr_as_view(abs_cwd));
+
+  if (!is_abs) {
+    return false;
+  }
+
+  bool exists = path_exists_and_is_dir(tstr_as_view(abs_cwd));
+  if (!exists) {
+    return false;
+  }
+
+  tstr_free(&(state->cwd));
+  state->cwd = tstr_dup(abs_cwd);
+
+  return true;
+}
+
 static ShellVirtualFunctions g_shell_functions = {
     .exit = shell_virtual_fn_exit,
     .get_current_working_directory =
         shell_virtual_fn_get_current_working_directory,
+    .set_current_working_directory =
+        shell_virtual_fn_set_current_working_directory,
 };
 
 void shell_repl_step(ShellState *state) {
@@ -247,6 +272,8 @@ ExitCode shell_execute_repl(void) {
   while (state.alive) {
     shell_repl_step(&state);
   }
+
+  tstr_free(&state.cwd);
 
   return state.result;
 }

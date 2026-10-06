@@ -38,7 +38,7 @@ typedef struct {
 #define ADD_DIR_ARGUMENT(path_view)                                            \
   do {                                                                         \
                                                                                \
-    if (tstr_view_starts_with(path_view, "/")) {                               \
+    if (path_is_absolute(path_view)) {                                         \
       tstr_view normalized = path_view;                                        \
                                                                                \
       if (tstr_view_ends_with(normalized, "/")) {                              \
@@ -154,7 +154,8 @@ static void free_execv_args(char **const args) {
   free(args);
 }
 
-ExitCode invoke_executable(const tstr *path, const tstr* const invoke_name, const ShellArguments *arguments) {
+ExitCode invoke_executable(const tstr *path, const tstr *const invoke_name,
+                           const ShellArguments *arguments) {
   // NOTE: this is synchronous, so no need to lock resources (e.g. stdout,
   // stderr)
 

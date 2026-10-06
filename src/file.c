@@ -3,14 +3,18 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-bool path_exists_and_is_dir(tstr_view dir) {
+bool path_is_absolute(tstr_view path) {
+  return tstr_view_starts_with(path, "/");
+}
 
-  tstr dir_path = tstr_from_view(dir);
+bool path_exists_and_is_dir(tstr_view path) {
+
+  tstr path_str = tstr_from_view(path);
 
   struct stat stats;
-  int res = stat(tstr_cstr(&dir_path), &stats);
+  int res = stat(tstr_cstr(&path_str), &stats);
 
-  tstr_free(&dir_path);
+  tstr_free(&path_str);
 
   if (res < 0) {
     return false;

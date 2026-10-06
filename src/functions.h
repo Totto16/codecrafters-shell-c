@@ -12,6 +12,9 @@ typedef void *shell_context;
 
 typedef tstr (*shell_fn_get_current_working_directory)(shell_context ctx);
 
+typedef bool (*shell_fn_set_current_working_directory)(shell_context ctx,
+                                                       const tstr *abs_cwd);
+
 typedef struct {
   bool has_code;
   ExitCode code;
@@ -21,6 +24,7 @@ typedef void (*shell_fn_exit)(shell_context ctx, const ExitData *data);
 
 typedef struct {
   shell_fn_get_current_working_directory get_current_working_directory;
+  shell_fn_set_current_working_directory set_current_working_directory;
   shell_fn_exit exit;
 } ShellVirtualFunctions;
 

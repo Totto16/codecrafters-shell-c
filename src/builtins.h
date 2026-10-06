@@ -16,7 +16,7 @@ typedef struct {
   shell_get_help_text help;
 } BuiltinCommand;
 
-#define BUILTIN_FUNCTION_COUNT 4
+#define BUILTIN_FUNCTION_COUNT 5
 
 extern BuiltinCommand g_builtin_functions[];
 
