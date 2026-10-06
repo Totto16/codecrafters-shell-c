@@ -33,7 +33,7 @@ static tstr shell_get_prompt(void) {
   return TSTR_LIT("$");
 }
 
-static void shell_print_prompt(const ShellState *const state) {
+static bool shell_print_prompt(const ShellState *const state) {
   tstr prompt = shell_get_prompt();
 
   int res = fprintf(stdout, TSTR_FMT " ", TSTR_FMT_ARGS(prompt));
@@ -41,14 +41,16 @@ static void shell_print_prompt(const ShellState *const state) {
   tstr_free(&prompt);
 
   if (res < 0) {
-    // TODO report internal failure
+    return false;
   }
+
+  return true;
 }
 
 static void shell_print_error(const char *error) {
   int res = fprintf(stderr, "%s\n", error);
   if (res < 0) {
-    // TODO report internal failure
+    // Note: we already have an error, so no reporting possible here
   }
 }
 
@@ -62,7 +64,13 @@ static void set_command_exit_code(ShellState *state, ExitCode code) {
 }
 
 void shell_repl_step(ShellState *state) {
-  RETURNS_VOID shell_print_prompt(state);
+  bool ok = shell_print_prompt(state);
+  if (!ok) {
+    RETURNS_VOID shell_exit(state, ExitCodeGenericError);
+
+    RETURNS_VOID shell_print_error("[INTERNAL] prompt print error");
+    return;
+  }
   ShellInputResult input = shell_get_input();
 
   if (!input.is_ok) {
@@ -85,7 +93,7 @@ void shell_repl_step(ShellState *state) {
       // special cases handle
       if (builtin.command.invoke == exit_invoke) {
 
-        // TODO: USe trtti
+        // TODO: Use trtti
         const ExitData *const exit_data = builtin.args;
 
         if (!exit_data->has_code) {
@@ -125,7 +133,10 @@ void shell_repl_step(ShellState *state) {
     free_shell_command_not_found(&parse.data.command_not_found);
 
     if (res < 0) {
-      // TODO: handle res
+      RETURNS_VOID shell_exit(state, ExitCodeGenericError);
+
+      RETURNS_VOID shell_print_error("[INTERNAL] output error");
+      break;
     }
     set_command_exit_code(state, ExitCodeCommandNotFound);
     break;
@@ -138,7 +149,10 @@ void shell_repl_step(ShellState *state) {
     tstr_free(&parse.data.error);
 
     if (res < 0) {
-      // TODO: handle res
+      RETURNS_VOID shell_exit(state, ExitCodeGenericError);
+
+      RETURNS_VOID shell_print_error("[INTERNAL] output error");
+      break;
     }
     set_command_exit_code(state, ExitCodeGenericError);
     break;
