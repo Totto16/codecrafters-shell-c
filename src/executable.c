@@ -12,6 +12,10 @@ TVEC_DEFINE_AND_IMPLEMENT_VEC_TYPE(PathDirectory)
 
 typedef TVEC_TYPENAME(PathDirectory) PathDirectories;
 
+static void free_path_directories(PathDirectories *directories) {
+  TVEC_FREE(PathDirectory, directories);
+}
+
 typedef struct {
   bool is_ok;
   union {
@@ -123,9 +127,11 @@ tstr get_executable_path(tstr_view name) {
     tstr executable_path = path_dir_get_executable(arg->path, name);
 
     if (!tstr_is_null(&executable_path)) {
+      free_path_directories(&directories);
       return executable_path;
     }
   }
 
+  free_path_directories(&directories);
   return tstr_null();
 }
