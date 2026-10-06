@@ -54,6 +54,8 @@ ShellInputResult shell_get_input(void) {
         break;
       }
 
+      const size_t buffer_offset = current_buffer_start - data;
+
       // we have more data
       current_buffer_size += SHELL_INPUT_BUFFER_SIZE;
       char *new_buffer = realloc(data, current_buffer_size);
@@ -64,8 +66,8 @@ ShellInputResult shell_get_input(void) {
                                   .data = {.err = ExitCodeOOM}};
       }
 
-      current_buffer_start = new_buffer + (current_buffer_start - data) +
-                             (SHELL_INPUT_BUFFER_SIZE);
+      current_buffer_start =
+          new_buffer + buffer_offset + (SHELL_INPUT_BUFFER_SIZE);
       data = new_buffer;
 
     } else {

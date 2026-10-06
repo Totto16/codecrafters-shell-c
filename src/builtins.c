@@ -62,8 +62,8 @@ static tstr_static exit_help(void) {
       "is that of the last command executed.\n");
 }
 
-const static BuiltinCommand builtin_function_exit = {
-    .name = TSTR_STATIC_LIT("exit"),
+static const BuiltinCommand builtin_function_exit = {
+    .name = TSTR_STATIC_LIT_CONST("exit"),
     .validator = {.parse = exit_parse_arguments, .free = exit_free_arguments},
     .invoke = exit_invoke,
     .help = exit_help,
@@ -232,8 +232,8 @@ static tstr_static echo_help(void) {
       "Returns success unless a write error occurs.\n");
 }
 
-const static BuiltinCommand builtin_function_echo = {
-    .name = TSTR_STATIC_LIT("echo"),
+static const BuiltinCommand builtin_function_echo = {
+    .name = TSTR_STATIC_LIT_CONST("echo"),
     .validator = {.parse = echo_parse_arguments, .free = echo_free_arguments},
     .invoke = echo_invoke,
     .help = echo_help,
@@ -425,8 +425,8 @@ static tstr_static type_help(void) {
       "found.\n");
 }
 
-const static BuiltinCommand builtin_function_type = {
-    .name = TSTR_STATIC_LIT("type"),
+static const BuiltinCommand builtin_function_type = {
+    .name = TSTR_STATIC_LIT_CONST("type"),
     .validator = {.parse = type_parse_arguments, .free = type_free_arguments},
     .invoke = type_invoke,
     .help = type_help,
