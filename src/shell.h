@@ -16,5 +16,3 @@ typedef enum : uint8_t {
 } ExitCode;
 
 ExitCode shell_execute_repl(void);
-
-#define RETURNS_VOID (void)

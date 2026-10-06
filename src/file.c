@@ -1,10 +1,19 @@
 #include "./file.h"
+#include "./utils.h"
 
 #include <sys/stat.h>
 #include <unistd.h>
 
 bool path_is_absolute(tstr_view path) {
   return tstr_view_starts_with(path, "/");
+}
+
+NODISCARD tstr_view path_normalize_dir_ending(tstr_view path) {
+  if (tstr_view_ends_with(path, "/")) {
+    path = tstr_sub(path, 0, path.len - 1);
+  }
+
+  return path;
 }
 
 bool path_exists_and_is_dir(tstr_view path) {

@@ -1,5 +1,6 @@
 
 #include "./input.h"
+#include "./utils.h"
 
 void free_shell_input_ok_result(ShellInputOkResult ok) {
   RETURNS_VOID free(ok.raw_data);

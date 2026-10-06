@@ -13,6 +13,7 @@
 #include "./file.h"
 #include "./input.h"
 #include "./parse.h"
+#include "./utils.h"
 
 static void shell_setup_repl(void) {
   // Flush after every printf
@@ -34,7 +35,7 @@ typedef struct {
 static tstr shell_get_prompt(const ShellState *const state) {
 
   // TODO. support setting the prompt dynamically
-  (void)state;
+  UNUSED(state);
 
   return TSTR_LIT("$");
 }
@@ -98,25 +99,26 @@ static tstr shell_virtual_fn_get_current_working_directory(shell_context ctx) {
   return tstr_dup(&(state->cwd));
 }
 
-static bool
-shell_virtual_fn_set_current_working_directory(shell_context ctx,
-                                               const tstr *const abs_cwd) {
+static bool shell_virtual_fn_set_current_working_directory(shell_context ctx,
+                                                           tstr_view abs_cwd) {
 
   ShellState *state = ctx;
 
-  bool is_abs = path_is_absolute(tstr_as_view(abs_cwd));
+  bool is_abs = path_is_absolute(abs_cwd);
 
   if (!is_abs) {
     return false;
   }
 
-  bool exists = path_exists_and_is_dir(tstr_as_view(abs_cwd));
+  bool exists = path_exists_and_is_dir(abs_cwd);
   if (!exists) {
     return false;
   }
 
+  abs_cwd = path_normalize_dir_ending(abs_cwd);
+
   tstr_free(&(state->cwd));
-  state->cwd = tstr_dup(abs_cwd);
+  state->cwd = tstr_from_view(abs_cwd);
 
   return true;
 }

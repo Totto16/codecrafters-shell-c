@@ -1,6 +1,7 @@
 
 #include "./executable.h"
 #include "./file.h"
+#include "./utils.h"
 
 #include <tvec/tvec.h>
 
@@ -39,11 +40,7 @@ typedef struct {
   do {                                                                         \
                                                                                \
     if (path_is_absolute(path_view)) {                                         \
-      tstr_view normalized = path_view;                                        \
-                                                                               \
-      if (tstr_view_ends_with(normalized, "/")) {                              \
-        normalized = tstr_sub(normalized, 0, normalized.len - 1);              \
-      }                                                                        \
+      tstr_view normalized = path_normalize_dir_ending(path_view);             \
                                                                                \
       if (path_exists_and_is_dir(normalized)) {                                \
         PathDirectory argument = {.path = normalized};                         \
@@ -66,7 +63,8 @@ static PathDirectoriesResult get_path_directories(tstr_view path_env) {
   PathDirectories directories = TVEC_EMPTY(PathDirectory);
 
   // Note: we remove non existent directories and normalize the directories
-  // here (ends without "/", no ".." or symlink normalizing)
+  // here (ends without "/", no ".." or symlink normalizing, with
+  // path_normalize_dir_ending)
 
   // TODO: should we support that?
   //  NOTE: non absolute paths in the PATH env variable are ignore (e.g.
@@ -191,7 +189,7 @@ ExitCode invoke_executable(const tstr *path, const tstr *const invoke_name,
     // Only reached if exec fails
     // TODO: print execute error
     free_execv_args(args);
-    (void)exec_res;
+    UNUSED(exec_res);
     return ExitCodeGenericError;
   }
 

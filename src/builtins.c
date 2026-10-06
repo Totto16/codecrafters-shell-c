@@ -1,6 +1,7 @@
 #include "./builtins.h"
 #include "./command.h"
 #include "./file.h"
+#include "./utils.h"
 
 #define RETURN_ARGUMENT(Type, value)                                           \
   do {                                                                         \
@@ -161,7 +162,7 @@ static void echo_free_arguments(shell_dynamic_args args) {
 }
 
 static ExitCode echo_invoke(shell_dynamic_args args, const ShellHandle shell) {
-  (void)shell;
+  UNUSED(shell);
   const EchoData *const echo_data = args;
 
   for (size_t i = 0; i < TVEC_LENGTH(EchoArgument, echo_data->args); ++i) {
@@ -301,7 +302,7 @@ static void type_free_arguments(shell_dynamic_args args) {
 }
 
 static ExitCode type_invoke(shell_dynamic_args args, const ShellHandle shell) {
-  (void)shell;
+  UNUSED(shell);
   const TypeData *const type_data = args;
 
   ExitCode code = ExitCodeSuccess;
@@ -414,7 +415,7 @@ pwd_parse_arguments(const ShellArguments *args) {
 static void pwd_free_arguments(shell_dynamic_args args) { free(args); }
 
 static ExitCode pwd_invoke(shell_dynamic_args args, const ShellHandle shell) {
-  (void)args;
+  UNUSED(args);
 
   tstr cwd = shell.function.get_current_working_directory(shell.context);
 
@@ -458,7 +459,7 @@ static const BuiltinCommand builtin_function_pwd = {
 };
 
 typedef struct {
-  tstr path;
+  tstr_view path;
 } CdData;
 
 static ShellParseArgumentsResult
@@ -472,7 +473,8 @@ cd_parse_arguments(const ShellArguments *args) {
         .is_ok = false, .data = {.error = TSTR_LIT("cd: not implemented yet")}};
   } else if (args->length == 1) {
     const ShellArgument *const arg1 = TVEC_GET_AT(ShellArgument, args, 0);
-    CdData cd_data = {.path = tstr_dup(&(arg1->parsed))};
+
+    CdData cd_data = {.path = tstr_as_view(&(arg1->parsed))};
     RETURN_ARGUMENT(CdData, cd_data);
   }
 
@@ -480,29 +482,27 @@ cd_parse_arguments(const ShellArguments *args) {
       .is_ok = false, .data = {.error = TSTR_LIT("exit: too many arguments")}};
 }
 
-static void cd_free_arguments(shell_dynamic_args args) {
-  CdData *cd_data = args;
-
-  tstr_free(&(cd_data->path));
-
-  free(args);
-}
+static void cd_free_arguments(shell_dynamic_args args) { free(args); }
 
 static ExitCode cd_invoke(shell_dynamic_args args, const ShellHandle shell) {
   CdData *cd_data = args;
 
-  if (!path_is_absolute(tstr_as_view(&(cd_data->path)))) {
+  tstr_view normalized_path = cd_data->path;
+
+  if (!path_is_absolute(normalized_path)) {
     int res = fprintf(stdout, "cd: " TSTR_FMT ": Not an absolute path\n",
-                      TSTR_FMT_ARGS(cd_data->path));
+                      TSV_FMT_ARGS(cd_data->path));
     if (res < 0) {
       return ExitCodeGenericError;
     }
     return ExitCodeGenericError;
+  } else {
+    normalized_path = path_normalize_dir_ending(normalized_path);
   }
 
-  if (!path_exists_and_is_dir(tstr_as_view(&(cd_data->path)))) {
+  if (!path_exists_and_is_dir(normalized_path)) {
     int res = fprintf(stdout, "cd: " TSTR_FMT ": No such file or directory\n",
-                      TSTR_FMT_ARGS(cd_data->path));
+                      TSV_FMT_ARGS(cd_data->path));
     if (res < 0) {
       return ExitCodeGenericError;
     }
@@ -510,7 +510,7 @@ static ExitCode cd_invoke(shell_dynamic_args args, const ShellHandle shell) {
   }
 
   bool ok = shell.function.set_current_working_directory(shell.context,
-                                                         &(cd_data->path));
+                                                         normalized_path);
 
   if (!ok) {
     return ExitCodeGenericError;
