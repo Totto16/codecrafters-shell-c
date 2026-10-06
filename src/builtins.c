@@ -1,5 +1,5 @@
 #include "./builtins.h"
-#include "./executable.h"
+#include "./command.h"
 
 #define RETURN_ARGUMENT(Type, value)                                           \
   do {                                                                         \
@@ -295,48 +295,6 @@ static void type_free_arguments(shell_dynamic_args args) {
   free_type_arguments(&(type_data->args));
 
   free(args);
-}
-
-typedef enum : uint8_t {
-  CommandTypeTypeBuiltin = 0,
-  CommandTypeTypeExecutable,
-  CommandTypeTypeNotFound,
-} CommandTypeType;
-
-typedef struct {
-  tstr path;
-} ExecutableData;
-
-static void free_executable_data(ExecutableData *data) {
-  tstr_free(&(data->path));
-}
-
-typedef struct {
-  CommandTypeType type;
-  union {
-    ExecutableData executable;
-  } data;
-} CommandType;
-
-static CommandType determine_command_type(tstr_view command) {
-  for (size_t i = 0; i < BUILTIN_FUNCTION_COUNT; ++i) {
-
-    BuiltinCommand builtin_command = builtin_functions[i];
-
-    if (tstr_view_eq_view(command, tstr_static_as_view(builtin_command.name))) {
-
-      return (CommandType){.type = CommandTypeTypeBuiltin, .data = {}};
-    }
-  }
-
-  tstr executable_path = get_executable_path(command);
-
-  if (!tstr_is_null(&executable_path)) {
-    return (CommandType){.type = CommandTypeTypeExecutable,
-                         .data = {.executable = {.path = executable_path}}};
-  }
-
-  return (CommandType){.type = CommandTypeTypeNotFound, .data = {}};
 }
 
 static ExitCode type_invoke(shell_dynamic_args args) {

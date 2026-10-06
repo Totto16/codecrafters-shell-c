@@ -1,5 +1,6 @@
 
 #include "./parse.h"
+#include "./command.h"
 
 typedef struct {
   ShellArgument program;
@@ -124,42 +125,51 @@ ShellParseDataResult shell_parse_data(tstr_view input) {
   const tstr *const prog_name = &program.program.parsed;
   const ShellArguments *const prog_args = &program.args;
 
-  for (size_t i = 0; i < BUILTIN_FUNCTION_COUNT; ++i) {
+  CommandType command_type = determine_command_type(tstr_as_view(prog_name));
 
-    BuiltinCommand builtin_command = builtin_functions[i];
+  switch (command_type.type) {
+  case CommandTypeTypeBuiltin: {
+    BuiltinCommand builtin_command = command_type.data.builtin;
 
-    if (tstr_eq_static_tstr(prog_name, builtin_command.name)) {
+    ShellParseArgumentsResult args_res =
+        builtin_command.validator.parse(prog_args);
 
-      ShellParseArgumentsResult args_res =
-          builtin_command.validator.parse(prog_args);
+    if (!args_res.is_ok) {
+      free_parsed_program(&program);
 
-      if (!args_res.is_ok) {
-        free_parsed_program(&program);
+      // move args_res.data.error ownership to the ShellParseDataResult struct
+      return (ShellParseDataResult){.type = ShellParseDataResultTypeError,
+                                    .data = {.error = args_res.data.error}};
+    }
 
-        // move args_res.data.error ownership to the ShellParseDataResult struct
-        return (ShellParseDataResult){.type = ShellParseDataResultTypeError,
-                                      .data = {.error = args_res.data.error}};
-      }
-
-      if (args_res.data.args == NULL) {
-        free_parsed_program(&program);
-
-        return (ShellParseDataResult){
-            .type = ShellParseDataResultTypeError,
-            .data = {.error = TSTR_LIT("[INTERNAL] Parse error")}};
-      }
-
-      ShellCommandBuiltin builtin_args = {.command = builtin_command,
-                                          .args = args_res.data.args};
-
-      free_shell_argument(&program.program);
+    if (args_res.data.args == NULL) {
+      free_parsed_program(&program);
 
       return (ShellParseDataResult){
-          .type = ShellParseDataResultTypeCommand,
-          .data = {.command = {.type = ShellCommandTypeBuiltin,
-                               .data = {.builtin = builtin_args},
-                               .args = program.args}}};
+          .type = ShellParseDataResultTypeError,
+          .data = {.error = TSTR_LIT("[INTERNAL] Parse error")}};
     }
+
+    ShellCommandBuiltin builtin_args = {.command = builtin_command,
+                                        .args = args_res.data.args};
+
+    free_shell_argument(&program.program);
+
+    return (ShellParseDataResult){
+        .type = ShellParseDataResultTypeCommand,
+        .data = {.command = {.type = ShellCommandTypeBuiltin,
+                             .data = {.builtin = builtin_args},
+                             .args = program.args}}};
+  }
+  case CommandTypeTypeExecutable: {
+
+    // TODO
+    break;
+  }
+  default: {
+    // TODO: report internal error
+    break;
+  }
   }
 
   free_shell_arguments(&program.args);
