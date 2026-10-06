@@ -397,9 +397,13 @@ const static BuiltinCommand builtin_function_type = {
     .help = type_help,
 };
 
-BuiltinCommand builtin_functions[BUILTIN_FUNCTION_COUNT] = {
+BuiltinCommand builtin_functions[] = {
     builtin_function_exit,
     builtin_function_echo,
     builtin_function_type,
     // TODO: help
 };
+
+static_assert(sizeof(builtin_functions) / sizeof(builtin_functions[0]) ==
+                  BUILTIN_FUNCTION_COUNT,
+              "BUILTIN_FUNCTION_COUNT is incorrect");

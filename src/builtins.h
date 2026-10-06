@@ -18,7 +18,7 @@ typedef struct {
 
 #define BUILTIN_FUNCTION_COUNT 3
 
-extern BuiltinCommand builtin_functions[BUILTIN_FUNCTION_COUNT];
+extern BuiltinCommand builtin_functions[];
 
 // special function pointer
 
@@ -28,6 +28,3 @@ typedef struct {
 } ExitData;
 
 extern ExitCode exit_invoke(shell_dynamic_args args);
-
-// TODO static assert that (sizeof(builtin_functions) / sizeof(BuiltinCommand))
-// == BUILTIN_FUNCTION_COUNT
