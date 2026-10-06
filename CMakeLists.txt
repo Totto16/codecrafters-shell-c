@@ -8,6 +8,13 @@ set(CMAKE_C_STANDARD 23) # Enable the C23 standard
 
 add_executable(shell ${SOURCE_FILES})
 
+target_compile_options(shell PRIVATE
+    -Wall
+    -Wextra
+    -Wpedantic
+    -Werror
+)
+
 target_link_libraries(shell PRIVATE readline)
 
 find_package(tstr CONFIG REQUIRED)

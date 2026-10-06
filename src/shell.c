@@ -26,15 +26,16 @@ typedef struct {
   CommandState command_state;
 } ShellState;
 
-static tstr shell_get_prompt(void) {
+static tstr shell_get_prompt(const ShellState *const state) {
 
   // TODO. support setting the prompt dynamically
+  (void)state;
 
   return TSTR_LIT("$");
 }
 
 static bool shell_print_prompt(const ShellState *const state) {
-  tstr prompt = shell_get_prompt();
+  tstr prompt = shell_get_prompt(state);
 
   int res = fprintf(stdout, TSTR_FMT " ", TSTR_FMT_ARGS(prompt));
 
@@ -176,6 +177,8 @@ ExitCode shell_execute_repl(void) {
       .command_state = {.exit_code = ExitCodeSuccess},
 
   };
+
+  shell_setup_repl();
 
   while (state.alive) {
     shell_repl_step(&state);

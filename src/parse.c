@@ -14,6 +14,23 @@ typedef struct {
   } data;
 } ParsedProgramResult;
 
+#define ADD_SHELL_ARGUMENT(argument)                                           \
+  do {                                                                         \
+    if (first) {                                                               \
+      program.program = argument;                                              \
+      first = false;                                                           \
+    } else {                                                                   \
+      TvecResult res = TVEC_PUSH(ShellArgument, &(program.args), argument);    \
+                                                                               \
+      if (res !=                                                               \
+          TvecResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/    \
+        return (ParsedProgramResult){                                          \
+            .is_ok = false,                                                    \
+            .data = {.error = TSTR_LIT("OOM error in internal parsing")}};     \
+      }                                                                        \
+    }                                                                          \
+  } while (false)
+
 static ParsedProgramResult shell_parse_input(tstr_view input) {
 
   // TODO: proper parsing, escapeing, "   " , proper whitespace etc
@@ -44,19 +61,7 @@ static ParsedProgramResult shell_parse_input(tstr_view input) {
         ShellArgument argument = {.original = orig,
                                   .parsed = tstr_from_view(orig)};
 
-        if (first) {
-          program.program = argument;
-          first = false;
-        } else {
-          TvecResult res = TVEC_PUSH(ShellArgument, &(program.args), argument);
-
-          if (res !=
-              TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
-            return (ParsedProgramResult){
-                .is_ok = false,
-                .data = {.error = TSTR_LIT("OOM error in internal parsing")}};
-          }
-        }
+        ADD_SHELL_ARGUMENT(argument);
       }
 
       start = i + 1;
@@ -68,18 +73,7 @@ static ParsedProgramResult shell_parse_input(tstr_view input) {
         (tstr_view){.data = input.data + start, .len = input.len - start};
     ShellArgument argument = {.original = orig, .parsed = tstr_from_view(orig)};
 
-    if (first) {
-      program.program = argument;
-      first = false;
-    } else {
-      TvecResult res = TVEC_PUSH(ShellArgument, &(program.args), argument);
-
-      if (res != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
-        return (ParsedProgramResult){
-            .is_ok = false,
-            .data = {.error = TSTR_LIT("OOM error in internal parsing")}};
-      }
-    }
+    ADD_SHELL_ARGUMENT(argument);
   }
 
   return (ParsedProgramResult){.is_ok = true, .data = {.program = program}};
