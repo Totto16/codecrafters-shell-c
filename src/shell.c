@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <tstr/tstr.h>
 
@@ -24,6 +25,7 @@ typedef struct {
   bool alive;
   ExitCode result;
   CommandState command_state;
+  const bool interactive;
 } ShellState;
 
 static tstr shell_get_prompt(const ShellState *const state) {
@@ -65,12 +67,14 @@ static void set_command_exit_code(ShellState *state, ExitCode code) {
 }
 
 void shell_repl_step(ShellState *state) {
-  bool ok = shell_print_prompt(state);
-  if (!ok) {
-    RETURNS_VOID shell_exit(state, ExitCodeGenericError);
+  if (state->interactive) {
+    bool ok = shell_print_prompt(state);
+    if (!ok) {
+      RETURNS_VOID shell_exit(state, ExitCodeGenericError);
 
-    RETURNS_VOID shell_print_error("[INTERNAL] prompt print error");
-    return;
+      RETURNS_VOID shell_print_error("[INTERNAL] prompt print error");
+      return;
+    }
   }
   ShellInputResult input = shell_get_input();
 
@@ -184,11 +188,13 @@ void shell_repl_step(ShellState *state) {
 
 ExitCode shell_execute_repl(void) {
 
+  bool interactive = isatty(STDIN_FILENO) == 1;
+
   ShellState state = {
       .alive = true,
       .result = ExitCodeSuccess,
       .command_state = {.exit_code = ExitCodeSuccess},
-
+      .interactive = interactive,
   };
 
   shell_setup_repl();
