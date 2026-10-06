@@ -6,7 +6,7 @@
 CommandType determine_command_type(tstr_view command) {
   for (size_t i = 0; i < BUILTIN_FUNCTION_COUNT; ++i) {
 
-    BuiltinCommand builtin_command = builtin_functions[i];
+    BuiltinCommand builtin_command = g_builtin_functions[i];
 
     if (tstr_view_eq_view(command, tstr_static_as_view(builtin_command.name))) {
 

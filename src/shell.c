@@ -10,6 +10,7 @@
 
 #include "./builtins.h"
 #include "./executable.h"
+#include "./file.h"
 #include "./input.h"
 #include "./parse.h"
 
@@ -27,6 +28,7 @@ typedef struct {
   ExitCode result;
   CommandState command_state;
   const bool interactive;
+  tstr cwd;
 } ShellState;
 
 static tstr shell_get_prompt(const ShellState *const state) {
@@ -59,8 +61,13 @@ static void shell_print_error(const char *error) {
 }
 
 static void shell_exit(ShellState *state, ExitCode code) {
-  state->alive = false;
-  state->result = code;
+  if (state->alive) {
+    // ignore duplicate exits, the first one sets the code, the second one is
+    // ignore (eg if we call "exit 22" and get EOF after that, it should result
+    // in 22)
+    state->alive = false;
+    state->result = code;
+  }
 }
 
 static void set_command_exit_code(ShellState *state, ExitCode code) {
@@ -71,6 +78,31 @@ static void free_shell_command_executable(ShellCommandExecutable *executable) {
   tstr_free(&(executable->invoke_name));
   tstr_free(&(executable->path));
 }
+
+static void shell_virtual_fn_exit(shell_context ctx, const ExitData *data) {
+
+  ShellState *state = ctx;
+
+  if (!data->has_code) {
+
+    RETURNS_VOID shell_exit(state, state->command_state.exit_code);
+  } else {
+    RETURNS_VOID shell_exit(state, data->code);
+  }
+}
+
+static tstr shell_virtual_fn_get_current_working_directory(shell_context ctx) {
+
+  ShellState *state = ctx;
+
+  return tstr_dup(&(state->cwd));
+}
+
+static ShellVirtualFunctions g_shell_functions = {
+    .exit = shell_virtual_fn_exit,
+    .get_current_working_directory =
+        shell_virtual_fn_get_current_working_directory,
+};
 
 void shell_repl_step(ShellState *state) {
   if (state->interactive) {
@@ -110,24 +142,12 @@ void shell_repl_step(ShellState *state) {
     case ShellCommandTypeBuiltin: {
       const ShellCommandBuiltin builtin = command.data.builtin;
 
-      // special cases handle
-      if (builtin.command.invoke == exit_invoke) {
+      ShellHandle shell_handle = {.context = state,
+                                  .function = g_shell_functions};
 
-        // TODO: Use trtti
-        const ExitData *const exit_data = builtin.args;
-
-        if (!exit_data->has_code) {
-
-          RETURNS_VOID shell_exit(state, state->command_state.exit_code);
-        } else {
-          RETURNS_VOID shell_exit(state, exit_data->code);
-        }
-
-      } else {
-
-        ExitCode command_exit_code = builtin.command.invoke(builtin.args);
-        set_command_exit_code(state, command_exit_code);
-      }
+      ExitCode command_exit_code =
+          builtin.command.invoke(builtin.args, shell_handle);
+      set_command_exit_code(state, command_exit_code);
 
       builtin.command.validator.free(builtin.args);
 
@@ -136,8 +156,8 @@ void shell_repl_step(ShellState *state) {
     case ShellCommandTypeExecutable: {
       ShellCommandExecutable executable = command.data.executable;
 
-      ExitCode command_exit_code =
-          invoke_executable(&executable.path, &executable.invoke_name, &command.args);
+      ExitCode command_exit_code = invoke_executable(
+          &executable.path, &executable.invoke_name, &command.args);
       set_command_exit_code(state, command_exit_code);
 
       free_shell_command_executable(&executable);
@@ -206,11 +226,20 @@ ExitCode shell_execute_repl(void) {
 
   bool interactive = isatty(STDIN_FILENO) == 1;
 
+  tstr cwd = path_get_cwd();
+
+  if (tstr_is_null(&cwd)) {
+
+    RETURNS_VOID shell_print_error("[INTERNAL] prompt print error");
+    return ExitCodeGenericError;
+  }
+
   ShellState state = {
       .alive = true,
       .result = ExitCodeSuccess,
       .command_state = {.exit_code = ExitCodeSuccess},
       .interactive = interactive,
+      .cwd = cwd,
   };
 
   shell_setup_repl();

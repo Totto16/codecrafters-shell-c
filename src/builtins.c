@@ -48,9 +48,12 @@ exit_parse_arguments(const ShellArguments *args) {
 
 static void exit_free_arguments(shell_dynamic_args args) { free(args); }
 
-ExitCode exit_invoke(shell_dynamic_args args) {
-  (void)args;
-  return ExitCodeImplementationError;
+static ExitCode exit_invoke(shell_dynamic_args args, const ShellHandle shell) {
+
+  const ExitData *const exit_data = args;
+
+  shell.function.exit(shell.context, exit_data);
+  return ExitCodeSuccess;
 }
 
 static tstr_static exit_help(void) {
@@ -157,8 +160,8 @@ static void echo_free_arguments(shell_dynamic_args args) {
   free(args);
 }
 
-static ExitCode echo_invoke(shell_dynamic_args args) {
-
+static ExitCode echo_invoke(shell_dynamic_args args, const ShellHandle shell) {
+  (void)shell;
   const EchoData *const echo_data = args;
 
   for (size_t i = 0; i < TVEC_LENGTH(EchoArgument, echo_data->args); ++i) {
@@ -297,8 +300,8 @@ static void type_free_arguments(shell_dynamic_args args) {
   free(args);
 }
 
-static ExitCode type_invoke(shell_dynamic_args args) {
-
+static ExitCode type_invoke(shell_dynamic_args args, const ShellHandle shell) {
+  (void)shell;
   const TypeData *const type_data = args;
 
   ExitCode code = ExitCodeSuccess;
@@ -390,13 +393,78 @@ static const BuiltinCommand builtin_function_type = {
     .help = type_help,
 };
 
-BuiltinCommand builtin_functions[] = {
+// TODO:
+typedef struct {
+  int todo;
+} PwdData;
+
+static ShellParseArgumentsResult
+pwd_parse_arguments(const ShellArguments *args) {
+
+  // TODO: support options to pwd
+
+  if (args->length == 0) {
+    PwdData pwd_data = {};
+    RETURN_ARGUMENT(PwdData, pwd_data);
+  }
+  return (ShellParseArgumentsResult){
+      .is_ok = false, .data = {.error = TSTR_LIT("exit: too many arguments")}};
+}
+
+static void pwd_free_arguments(shell_dynamic_args args) { free(args); }
+
+static ExitCode pwd_invoke(shell_dynamic_args args, const ShellHandle shell) {
+  (void)args;
+
+  tstr cwd = shell.function.get_current_working_directory(shell.context);
+
+  if (tstr_is_null(&cwd)) {
+    return ExitCodeGenericError;
+  }
+
+  int res = fprintf(stdout, TSTR_FMT "\n", TSTR_FMT_ARGS(cwd));
+
+  tstr_free(&cwd);
+
+  if (res < 0) {
+    return ExitCodeGenericError;
+  }
+
+  return ExitCodeSuccess;
+}
+
+static tstr_static pwd_help(void) {
+  return TSTR_STATIC_LIT(
+      "pwd: pwd [-LP]\n"
+      "Print the name of the current working directory.\n"
+      "\n"
+      "Options:\n"
+      "  -L        print the value of $PWD if it names the current working\n"
+      "            directory\n"
+      "  -P        print the physical directory, without any symbolic links\n"
+      "\n"
+      "By default, `pwd' behaves as if `-L' were specified.\n"
+      "\n"
+      "Exit Status:\n"
+      "Returns 0 unless an invalid option is given or the current directory\n"
+      "cannot be read.\n");
+}
+
+static const BuiltinCommand builtin_function_pwd = {
+    .name = TSTR_STATIC_LIT_CONST("pwd"),
+    .validator = {.parse = pwd_parse_arguments, .free = pwd_free_arguments},
+    .invoke = pwd_invoke,
+    .help = pwd_help,
+};
+
+BuiltinCommand g_builtin_functions[] = {
     builtin_function_exit,
     builtin_function_echo,
     builtin_function_type,
+    builtin_function_pwd,
     // TODO: help
 };
 
-static_assert(sizeof(builtin_functions) / sizeof(builtin_functions[0]) ==
+static_assert(sizeof(g_builtin_functions) / sizeof(g_builtin_functions[0]) ==
                   BUILTIN_FUNCTION_COUNT,
               "BUILTIN_FUNCTION_COUNT is incorrect");

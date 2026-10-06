@@ -16,15 +16,8 @@ typedef struct {
   shell_get_help_text help;
 } BuiltinCommand;
 
-#define BUILTIN_FUNCTION_COUNT 3
+#define BUILTIN_FUNCTION_COUNT 4
 
-extern BuiltinCommand builtin_functions[];
+extern BuiltinCommand g_builtin_functions[];
 
 // special function pointer
-
-typedef struct {
-  bool has_code;
-  ExitCode code;
-} ExitData;
-
-extern ExitCode exit_invoke(shell_dynamic_args args);
