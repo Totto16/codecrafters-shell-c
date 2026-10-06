@@ -6,8 +6,15 @@ typedef struct {
   ShellArguments args;
 } ParsedProgram;
 
-// TODO: return eventual errors
-static ParsedProgram shell_parse_input(tstr_view input) {
+typedef struct {
+  bool is_ok;
+  union {
+    ParsedProgram program;
+    tstr error;
+  } data;
+} ParsedProgramResult;
+
+static ParsedProgramResult shell_parse_input(tstr_view input) {
 
   // TODO: proper parsing, escapeing, "   " , proper whitespace etc
 
@@ -25,8 +32,9 @@ static ParsedProgram shell_parse_input(tstr_view input) {
 
     if (isspace(character) != 0) {
       if (i == 0) {
-        // TODO: should we support leading whitespace
-        exit(121);
+        return (ParsedProgramResult){
+            .is_ok = false,
+            .data = {.error = TSTR_LIT("Leading whitespace not supported")}};
       }
 
       if (start != i) {
@@ -44,8 +52,9 @@ static ParsedProgram shell_parse_input(tstr_view input) {
 
           if (res !=
               TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
-            // TODO
-            exit(16);
+            return (ParsedProgramResult){
+                .is_ok = false,
+                .data = {.error = TSTR_LIT("OOM error in internal parsing")}};
           }
         }
       }
@@ -66,13 +75,14 @@ static ParsedProgram shell_parse_input(tstr_view input) {
       TvecResult res = TVEC_PUSH(ShellArgument, &(program.args), argument);
 
       if (res != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
-        // TODO
-        exit(16);
+        return (ParsedProgramResult){
+            .is_ok = false,
+            .data = {.error = TSTR_LIT("OOM error in internal parsing")}};
       }
     }
   }
 
-  return program;
+  return (ParsedProgramResult){.is_ok = true, .data = {.program = program}};
 }
 
 static void free_shell_argument(ShellArgument *arg) {
@@ -102,7 +112,15 @@ void free_shell_command_not_found(ShellCommandNotFound *found) {
 
 ShellParseDataResult shell_parse_data(tstr_view input) {
 
-  ParsedProgram program = shell_parse_input(input);
+  ParsedProgramResult program_res = shell_parse_input(input);
+
+  if (!program_res.is_ok) {
+    // move program_res.data.error ownership to the ShellParseDataResult struct
+    return (ShellParseDataResult){.type = ShellParseDataResultTypeError,
+                                  .data = {.error = program_res.data.error}};
+  }
+
+  ParsedProgram program = program_res.data.program;
 
   if (tstr_len(&program.program.parsed) == 0) {
     return (ShellParseDataResult){.type = ShellParseDataResultEmpty,
