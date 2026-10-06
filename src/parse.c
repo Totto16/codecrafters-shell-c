@@ -114,11 +114,12 @@ ShellParseDataResult shell_parse_data(tstr_view input) {
 
   for (size_t i = 0; i < BUILTIN_FUNCTION_COUNT; ++i) {
 
-    BuiltinCommand command = builtin_functions[i];
+    BuiltinCommand builtin_command = builtin_functions[i];
 
-    if (tstr_eq_static_tstr(prog_name, command.name)) {
+    if (tstr_eq_static_tstr(prog_name, builtin_command.name)) {
 
-      ShellParseArgumentsResult args_res = command.validator.parse(prog_args);
+      ShellParseArgumentsResult args_res =
+          builtin_command.validator.parse(prog_args);
 
       if (!args_res.is_ok) {
         free_parsed_program(&program);
@@ -136,7 +137,7 @@ ShellParseDataResult shell_parse_data(tstr_view input) {
             .data = {.error = TSTR_LIT("[INTERNAL] Parse error")}};
       }
 
-      ShellCommandBuiltin builtin_args = {.command = command,
+      ShellCommandBuiltin builtin_args = {.command = builtin_command,
                                           .args = args_res.data.args};
 
       free_shell_argument(&program.program);

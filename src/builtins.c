@@ -8,7 +8,7 @@
     if (data == NULL) {                                                        \
       return (ShellParseArgumentsResult){                                      \
           .is_ok = false,                                                      \
-          .data = {.error = TSTR_LIT("OOM In argument allocation")}};          \
+          .data = {.error = TSTR_LIT("OOM in argument allocation")}};          \
     }                                                                          \
     *data = value;                                                             \
     return (ShellParseArgumentsResult){.is_ok = true, .data = {.args = data}}; \
@@ -101,6 +101,8 @@ echo_parse_arguments(const ShellArguments *args) {
 
     if (!processed_args) {
 
+      // TODO: support also -enE etc.
+
       if (tstr_eq_static_tstr(&(arg->parsed), TSTR_STATIC_LIT("-n"))) {
         echo_data.newline = false;
         continue;
@@ -125,16 +127,14 @@ echo_parse_arguments(const ShellArguments *args) {
     if (res != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
       return (ShellParseArgumentsResult){
           .is_ok = false,
-          .data = {.error = TSTR_LIT("OOM In argument allocation")}};
+          .data = {.error = TSTR_LIT("OOM in argument allocation")}};
     }
   }
 
   RETURN_ARGUMENT(EchoData, echo_data);
 }
 
-static void free_shell_argument(EchoArgument *arg) {
-  tstr_free(&(arg->parsed));
-}
+static void free_echo_argument(EchoArgument *arg) { tstr_free(&(arg->parsed)); }
 
 static void free_echo_arguments(EchoArguments *args) {
 
@@ -142,7 +142,7 @@ static void free_echo_arguments(EchoArguments *args) {
 
     EchoArgument *arg = TVEC_GET_AT_MUT(EchoArgument, args, i);
 
-    free_shell_argument(arg);
+    free_echo_argument(arg);
   }
 
   TVEC_FREE(EchoArgument, args);
@@ -239,21 +239,156 @@ const static BuiltinCommand builtin_function_echo = {
     .help = echo_help,
 };
 
+typedef struct {
+  tstr_view name;
+} TypeArgument;
+
+TVEC_DEFINE_AND_IMPLEMENT_VEC_TYPE(TypeArgument)
+
+typedef TVEC_TYPENAME(TypeArgument) TypeArguments;
+
+typedef struct {
+  TypeArguments args;
+} TypeData;
+
 static ShellParseArgumentsResult
 type_parse_arguments(const ShellArguments *args) {
-  return (ShellParseArgumentsResult){
-      .is_ok = false, .data = {.error = TSTR_LIT("TODO: implement")}};
+
+  if (args->length == 0) {
+    return (ShellParseArgumentsResult){
+        .is_ok = false,
+        .data = {.error = TSTR_LIT("type: expected at least one argument")}};
+  }
+
+  TypeData type_data = {
+      .args = TVEC_EMPTY(TypeArgument),
+  };
+
+  // TODO: support options
+
+  for (size_t i = 0; i < TVEC_LENGTH(ShellArgument, *args); ++i) {
+
+    const ShellArgument *const arg = TVEC_GET_AT(ShellArgument, args, i);
+
+    TypeArgument argument = {.name = tstr_as_view(&(arg->parsed))};
+
+    TvecResult res = TVEC_PUSH(TypeArgument, &(type_data.args), argument);
+
+    if (res != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
+      return (ShellParseArgumentsResult){
+          .is_ok = false,
+          .data = {.error = TSTR_LIT("OOM in argument allocation")}};
+    }
+  }
+
+  RETURN_ARGUMENT(TypeData, type_data);
+}
+
+static void free_type_arguments(TypeArguments *args) {
+
+  TVEC_FREE(TypeArgument, args);
 }
 
 static void type_free_arguments(shell_dynamic_args args) {
-  // TODO
+  TypeData *type_data = args;
+
+  free_type_arguments(&(type_data->args));
+
+  free(args);
+}
+
+typedef enum : uint8_t {
+  TypeCommandTypeBuiltin = 0,
+  TypeCommandTypeNotFound,
+} TypeCommandType;
+
+static TypeCommandType determine_command_type(tstr_view command) {
+  for (size_t i = 0; i < BUILTIN_FUNCTION_COUNT; ++i) {
+
+    BuiltinCommand builtin_command = builtin_functions[i];
+
+    if (tstr_view_eq_view(command, tstr_static_as_view(builtin_command.name))) {
+
+      return TypeCommandTypeBuiltin;
+    }
+  }
+
+  return TypeCommandTypeNotFound;
 }
 
 static ExitCode type_invoke(shell_dynamic_args args) {
-  return ExitCodeGenericError;
+
+  const TypeData *const type_data = args;
+
+  ExitCode code = ExitCodeSuccess;
+
+  for (size_t i = 0; i < TVEC_LENGTH(TypeArgument, type_data->args); ++i) {
+
+    const TypeArgument *const arg =
+        TVEC_GET_AT(TypeArgument, &(type_data->args), i);
+
+    TypeCommandType command_type = determine_command_type(arg->name);
+
+    switch (command_type) {
+    case TypeCommandTypeBuiltin: {
+      int res = fprintf(stdout, TSTR_FMT " is a shell builtin\n",
+                        TSV_FMT_ARGS(arg->name));
+      if (res < 0) {
+        return ExitCodeGenericError;
+      }
+      break;
+    }
+    case TypeCommandTypeNotFound: {
+      code = ExitCodeGenericError;
+      int res =
+          fprintf(stdout, TSTR_FMT ": not found\n", TSV_FMT_ARGS(arg->name));
+      if (res < 0) {
+        return ExitCodeGenericError;
+      }
+      break;
+    }
+    default: {
+      return ExitCodeImplementationError;
+    }
+    }
+  }
+
+  return code;
 }
 
-static tstr_static type_help(void) { return TSTR_STATIC_LIT("TODO"); }
+static tstr_static type_help(void) {
+  return TSTR_STATIC_LIT(
+      "type: type [-afptP] name [name ...]\n"
+      "Display information about command type.\n"
+      "\n"
+      "For each NAME, indicate how it would be interpreted if used as a\n"
+      "command name.\n"
+      "\n"
+      "Options:\n"
+      "  -a        display all locations containing an executable named NAME;\n"
+      "            includes aliases, builtins, and functions, if and only if\n"
+      "            the `-p' option is not also used\n"
+      "  -f        suppress shell function lookup\n"
+      "  -P        force a PATH search for each NAME, even if it is an alias,\n"
+      "            builtin, or function, and returns the name of the disk "
+      "file\n"
+      "            that would be executed\n"
+      "  -p        returns either the name of the disk file that would be "
+      "executed,\n"
+      "            or nothing if `type -t NAME' would not return `file'\n"
+      "  -t        output a single word which is one of `alias', `keyword',\n"
+      "            `function', `builtin', `file' or `', if NAME is an alias,\n"
+      "            shell reserved word, shell function, shell builtin, disk "
+      "file,\n"
+      "            or not found, respectively\n"
+      "\n"
+      "Arguments:\n"
+      "  NAME      Command name to be interpreted.\n"
+      "\n"
+      "Exit Status:\n"
+      "Returns success if all of the NAMEs are found; fails if any are not "
+      "found.\n");
+}
 
 const static BuiltinCommand builtin_function_type = {
     .name = TSTR_STATIC_LIT("type"),
