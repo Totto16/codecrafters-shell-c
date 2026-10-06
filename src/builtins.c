@@ -1,6 +1,5 @@
-
-
 #include "./builtins.h"
+#include "./executable.h"
 
 #define RETURN_ARGUMENT(Type, value)                                           \
   do {                                                                         \
@@ -50,6 +49,7 @@ exit_parse_arguments(const ShellArguments *args) {
 static void exit_free_arguments(shell_dynamic_args args) { free(args); }
 
 ExitCode exit_invoke(shell_dynamic_args args) {
+  (void)args;
   return ExitCodeImplementationError;
 }
 
@@ -298,22 +298,45 @@ static void type_free_arguments(shell_dynamic_args args) {
 }
 
 typedef enum : uint8_t {
-  TypeCommandTypeBuiltin = 0,
-  TypeCommandTypeNotFound,
-} TypeCommandType;
+  CommandTypeTypeBuiltin = 0,
+  CommandTypeTypeExecutable,
+  CommandTypeTypeNotFound,
+} CommandTypeType;
 
-static TypeCommandType determine_command_type(tstr_view command) {
+typedef struct {
+  tstr path;
+} ExecutableData;
+
+static void free_executable_data(ExecutableData *data) {
+  tstr_free(&(data->path));
+}
+
+typedef struct {
+  CommandTypeType type;
+  union {
+    ExecutableData executable;
+  } data;
+} CommandType;
+
+static CommandType determine_command_type(tstr_view command) {
   for (size_t i = 0; i < BUILTIN_FUNCTION_COUNT; ++i) {
 
     BuiltinCommand builtin_command = builtin_functions[i];
 
     if (tstr_view_eq_view(command, tstr_static_as_view(builtin_command.name))) {
 
-      return TypeCommandTypeBuiltin;
+      return (CommandType){.type = CommandTypeTypeBuiltin, .data = {}};
     }
   }
 
-  return TypeCommandTypeNotFound;
+  tstr executable_path = get_executable_path(command);
+
+  if (!tstr_is_null(&executable_path)) {
+    return (CommandType){.type = CommandTypeTypeExecutable,
+                         .data = {.executable = {.path = executable_path}}};
+  }
+
+  return (CommandType){.type = CommandTypeTypeNotFound, .data = {}};
 }
 
 static ExitCode type_invoke(shell_dynamic_args args) {
@@ -327,10 +350,10 @@ static ExitCode type_invoke(shell_dynamic_args args) {
     const TypeArgument *const arg =
         TVEC_GET_AT(TypeArgument, &(type_data->args), i);
 
-    TypeCommandType command_type = determine_command_type(arg->name);
+    CommandType command_type = determine_command_type(arg->name);
 
-    switch (command_type) {
-    case TypeCommandTypeBuiltin: {
+    switch (command_type.type) {
+    case CommandTypeTypeBuiltin: {
       int res = fprintf(stdout, TSTR_FMT " is a shell builtin\n",
                         TSV_FMT_ARGS(arg->name));
       if (res < 0) {
@@ -338,7 +361,19 @@ static ExitCode type_invoke(shell_dynamic_args args) {
       }
       break;
     }
-    case TypeCommandTypeNotFound: {
+    case CommandTypeTypeExecutable: {
+      int res = fprintf(stdout, TSTR_FMT " is " TSTR_FMT "\n",
+                        TSV_FMT_ARGS(arg->name),
+                        TSTR_FMT_ARGS(command_type.data.executable.path));
+
+      free_executable_data(&command_type.data.executable);
+
+      if (res < 0) {
+        return ExitCodeGenericError;
+      }
+      break;
+    }
+    case CommandTypeTypeNotFound: {
       code = ExitCodeGenericError;
       int res =
           fprintf(stdout, TSTR_FMT ": not found\n", TSV_FMT_ARGS(arg->name));
