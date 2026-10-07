@@ -135,8 +135,56 @@ static ShellVirtualFunctions g_shell_functions = {
     .set_current_working_directory =
         shell_virtual_fn_set_current_working_directory,
 };
+#if USE_READLINE == 0
+static void shell_cleanup_old_prompt(ShellState *state) {
+  tstr_free(&state->input_state.last_prompt_string);
+}
+static void shell_set_new_prompt(ShellState *state, tstr prompt) {
+  shell_cleanup_old_prompt(state);
+  state->input_state.last_prompt_string = prompt;
+}
+
+static bool shell_process_input_state(ShellState *state) {
+  shell_cleanup_old_prompt(state);
+  return true;
+}
+#else
+static bool shell_set_prompt_to_input_state(ShellState *state) {
+  tstr prompt;
+  if (state->interactive) {
+    prompt = shell_get_prompt(state);
+
+    if (tstr_is_null(&prompt)) {
+      RETURNS_VOID shell_exit(state, ExitCodeGenericError);
+
+      RETURNS_VOID shell_print_error("[INTERNAL] prompt print error");
+      return false;
+    }
+  } else {
+    prompt = tstr_null();
+  }
+
+  state->input_state.prompt = prompt;
+
+  return true;
+}
+
+static bool shell_process_input_state(ShellState *state) {
+
+  return shell_set_prompt_to_input_state(state);
+}
+#endif
 
 void shell_repl_step(ShellState *state) {
+
+  if (!shell_process_input_state(state)) {
+
+    RETURNS_VOID shell_exit(state, ExitCodeGenericError);
+
+    RETURNS_VOID shell_print_error("[INTERNAL] prompt print error");
+    return;
+  }
+
   ShellInputResult input = shell_get_input(&(state->input_state));
 
   if (input.type == ShellInputResultTypeEOF) {
@@ -159,7 +207,7 @@ void shell_repl_step(ShellState *state) {
   }
 
   ShellInputOkResult data = input.data.ok;
-  ShellParseDataResult parse = shell_parse_data(data.data);
+  ShellParseDataResult parse = shell_parse_data(INPUT_DATA_VIEW(data));
 
   switch (parse.type) {
   case ShellParseDataResultTypeCommand: {
@@ -261,6 +309,7 @@ static ShellSetupResult shell_setup_repl(const char *const program_name) {
   // Flush after every printf
   RETURNS_VOID setbuf(stdout, NULL);
 
+#if USE_READLINE == 0
   EditLine *el = el_init(program_name, stdin, stdout, stderr);
   if (el == NULL) {
     return (ShellSetupResult){
@@ -270,6 +319,22 @@ static ShellSetupResult shell_setup_repl(const char *const program_name) {
 
   // TODO: setup custom libedit behaviour
   //  this includes: signal handling, tab completion, history
+
+  ShellInputState input_state = {.el = el};
+#else
+  UNUSED(program_name);
+  int res = rl_initialize();
+  if (res != 0) {
+    return (ShellSetupResult){
+        .type = ShellSetupResultTypeError,
+        .data = {.error = TSTR_LIT("readline init error")}};
+  }
+
+  // TODO: setup custom readline behaviour
+  //  this includes: signal handling, tab completion, history
+
+  ShellInputState input_state = {.prompt = tstr_null()};
+#endif
 
   bool interactive = isatty(STDIN_FILENO) == 1;
 
@@ -286,7 +351,7 @@ static ShellSetupResult shell_setup_repl(const char *const program_name) {
       .command_state = {.exit_code = ExitCodeSuccess},
       .interactive = interactive,
       .cwd = cwd,
-      .input_state = (ShellInputState){.el = el},
+      .input_state = input_state,
   };
 
   return (ShellSetupResult){.type = ShellSetupResultTypeOk,
@@ -296,10 +361,13 @@ static ShellSetupResult shell_setup_repl(const char *const program_name) {
 static void shell_destroy_state(ShellState *state) {
 
   tstr_free(&(state->cwd));
-
+#if USE_READLINE == 0
   el_end(state->input_state.el);
+  shell_cleanup_old_prompt(state);
+#endif
 }
 
+#if USE_READLINE == 0
 typedef const char *(*el_pfunct_t)(EditLine *);
 
 NODISCARD static bool el_set_prompt(EditLine *e, el_pfunct_t fn) {
@@ -344,7 +412,7 @@ NODISCARD static const char *shell_get_prompt_el_cb(EditLine *el) {
     goto err;
   }
 
-//TODO: free this string after it was used
+  shell_set_new_prompt(state, prompt);
 
   return prompt_str;
 
@@ -354,9 +422,11 @@ err:
   RETURNS_VOID shell_print_error("[INTERNAL] prompt print error");
   return "$ ";
 }
+#endif
 
 NODISCARD static bool shell_setup_prompt(ShellState *state) {
 
+#if USE_READLINE == 0
   bool ok = el_set_clientdata(state->input_state.el, state);
   if (!ok) {
     return false;
@@ -368,6 +438,10 @@ NODISCARD static bool shell_setup_prompt(ShellState *state) {
   // TODO
   // el_set(EL_EDITOR, "emacs" "vi")
   return true;
+#else
+
+  return shell_set_prompt_to_input_state(state);
+#endif
 }
 
 ExitCode shell_execute_repl(const size_t argc, char *const *const argv) {

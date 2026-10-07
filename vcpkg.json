@@ -8,6 +8,9 @@
     },
     {
       "name": "libedit"
+    },
+    {
+      "name": "readline"
     }
   ]
 }
