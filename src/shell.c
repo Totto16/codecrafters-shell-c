@@ -6,7 +6,6 @@
 #include <string.h>
 #include <unistd.h>
 
-#include <readline/readline.h>
 #include <tstr/tstr.h>
 
 #include "./builtins.h"
@@ -15,18 +14,6 @@
 #include "./input.h"
 #include "./parse.h"
 #include "./utils.h"
-
-static void shell_setup_repl(void) {
-  // Flush after every printf
-  RETURNS_VOID setbuf(stdout, NULL);
-
-  int res = rl_initialize();
-  // TODO: check the result
-  UNUSED(res);
-
-  // TODO: setup custom readline behaviour
-  //  this includes: signal handling, tab completion, history
-}
 
 typedef struct {
   ExitCode exit_code;
@@ -38,6 +25,7 @@ typedef struct {
   CommandState command_state;
   const bool interactive;
   tstr cwd;
+  ShellInputState input_state;
 } ShellState;
 
 static tstr shell_get_prompt(const ShellState *const state) {
@@ -48,11 +36,28 @@ static tstr shell_get_prompt(const ShellState *const state) {
   return TSTR_LIT("$ ");
 }
 
-static void shell_print_error(const char *error) {
-  int res = fprintf(stderr, "%s\n", error);
+static void shell_print_errors(const char **errors, size_t count) {
+  for (size_t i = 0; i < count; ++i) {
+
+    int res = fprintf(stderr, "%s", errors[i]);
+    if (res < 0) {
+      fflush(stderr);
+      // Note: we already have an error, so no reporting possible here
+      return;
+    }
+  }
+
+  int res = fprintf(stderr, "\n");
   if (res < 0) {
     // Note: we already have an error, so no reporting possible here
   }
+
+  fflush(stderr);
+}
+
+static void shell_print_error(const char *error) {
+  const char *errors[] = {error};
+  shell_print_errors(errors, ARRAY_SIZE(errors));
 }
 
 static void shell_exit(ShellState *state, ExitCode code) {
@@ -132,23 +137,7 @@ static ShellVirtualFunctions g_shell_functions = {
 };
 
 void shell_repl_step(ShellState *state) {
-  tstr prompt;
-  if (state->interactive) {
-    prompt = shell_get_prompt(state);
-
-    if (tstr_is_null(&prompt)) {
-      RETURNS_VOID shell_exit(state, ExitCodeGenericError);
-
-      RETURNS_VOID shell_print_error("[INTERNAL] prompt print error");
-      return;
-    }
-  } else {
-    prompt = tstr_null();
-  }
-
-  ShellInputResult input = shell_get_input(tstr_cstr(&prompt));
-
-  tstr_free(&prompt);
+  ShellInputResult input = shell_get_input(&(state->input_state));
 
   if (input.type == ShellInputResultTypeEOF) {
     RETURNS_VOID shell_exit(state, state->command_state.exit_code);
@@ -156,14 +145,21 @@ void shell_repl_step(ShellState *state) {
   }
 
   if (input.type != ShellInputResultTypeOk) {
+    tstr error = TSTR_LIT("Can't read input");
+    if (input.type == ShellInputResultTypeError) {
+      tstr_free(&error);
+      error = input.data.error;
+    }
+
     RETURNS_VOID shell_exit(state, ExitCodeImplementationError);
 
-    RETURNS_VOID shell_print_error("Can't read input");
+    RETURNS_VOID shell_print_error(tstr_cstr(&error));
+    tstr_free(&error);
     return;
   }
 
   ShellInputOkResult data = input.data.ok;
-  ShellParseDataResult parse = shell_parse_data(tstr_view_from(data.data));
+  ShellParseDataResult parse = shell_parse_data(data.data);
 
   switch (parse.type) {
   case ShellParseDataResultTypeCommand: {
@@ -195,7 +191,7 @@ void shell_repl_step(ShellState *state) {
       break;
     }
     default: {
-      RETURNS_VOID shell_exit(state, ExitCodeGenericError);
+      RETURNS_VOID shell_exit(state, ExitCodeImplementationError);
 
       RETURNS_VOID shell_print_error("[INTERNAL] Invalid command type");
       break;
@@ -238,7 +234,7 @@ void shell_repl_step(ShellState *state) {
     break;
   }
   default: {
-    RETURNS_VOID shell_exit(state, ExitCodeGenericError);
+    RETURNS_VOID shell_exit(state, ExitCodeImplementationError);
 
     RETURNS_VOID shell_print_error("[INTERNAL] Invalid parse result");
     break;
@@ -248,16 +244,40 @@ void shell_repl_step(ShellState *state) {
   RETURNS_VOID free_shell_input_ok_result(data);
 }
 
-ExitCode shell_execute_repl(void) {
+typedef enum : uint8_t {
+  ShellSetupResultTypeOk = 0,
+  ShellSetupResultTypeError,
+} ShellSetupResultType;
+
+typedef struct {
+  ShellSetupResultType type;
+  union {
+    ShellState ok;
+    tstr error;
+  } data;
+} ShellSetupResult;
+
+static ShellSetupResult shell_setup_repl(const char *const program_name) {
+  // Flush after every printf
+  RETURNS_VOID setbuf(stdout, NULL);
+
+  EditLine *el = el_init(program_name, stdin, stdout, stderr);
+  if (el == NULL) {
+    return (ShellSetupResult){
+        .type = ShellSetupResultTypeError,
+        .data = {.error = TSTR_LIT("libedit init error")}};
+  }
+
+  // TODO: setup custom libedit behaviour
+  //  this includes: signal handling, tab completion, history
 
   bool interactive = isatty(STDIN_FILENO) == 1;
 
   tstr cwd = path_get_cwd();
 
   if (tstr_is_null(&cwd)) {
-
-    RETURNS_VOID shell_print_error("[INTERNAL] prompt print error");
-    return ExitCodeGenericError;
+    return (ShellSetupResult){.type = ShellSetupResultTypeError,
+                              .data = {.error = TSTR_LIT("ced get error")}};
   }
 
   ShellState state = {
@@ -266,15 +286,123 @@ ExitCode shell_execute_repl(void) {
       .command_state = {.exit_code = ExitCodeSuccess},
       .interactive = interactive,
       .cwd = cwd,
+      .input_state = (ShellInputState){.el = el},
   };
 
-  shell_setup_repl();
+  return (ShellSetupResult){.type = ShellSetupResultTypeOk,
+                            .data = {.ok = state}};
+}
+
+static void shell_destroy_state(ShellState *state) {
+
+  tstr_free(&(state->cwd));
+
+  el_end(state->input_state.el);
+}
+
+typedef const char *(*el_pfunct_t)(EditLine *);
+
+NODISCARD static bool el_set_prompt(EditLine *e, el_pfunct_t fn) {
+  return el_set(e, EL_PROMPT, fn) == 0;
+}
+
+NODISCARD static bool el_set_clientdata(EditLine *e, void *data) {
+  return el_set(e, EL_CLIENTDATA, data) == 0;
+}
+
+NODISCARD static void *el_get_clientdata(EditLine *e) {
+  void *data = NULL;
+  int res = el_get(e, EL_CLIENTDATA, &data);
+  if (res != 0) {
+    return NULL;
+  }
+
+  return data;
+}
+
+NODISCARD static const char *shell_get_prompt_el_cb(EditLine *el) {
+
+  ShellState *state = el_get_clientdata(el);
+  if (state == NULL) {
+    goto err;
+  }
+
+  tstr prompt;
+  if (state->interactive) {
+    prompt = shell_get_prompt(state);
+
+    if (tstr_is_null(&prompt)) {
+      goto err;
+    }
+  } else {
+    prompt = TSTR_LIT("");
+  }
+
+  const char *prompt_str = tstr_cstr(&prompt);
+
+  if (prompt_str == NULL) {
+    goto err;
+  }
+
+//TODO: free this string after it was used
+
+  return prompt_str;
+
+err:
+  RETURNS_VOID shell_exit(state, ExitCodeImplementationError);
+
+  RETURNS_VOID shell_print_error("[INTERNAL] prompt print error");
+  return "$ ";
+}
+
+NODISCARD static bool shell_setup_prompt(ShellState *state) {
+
+  bool ok = el_set_clientdata(state->input_state.el, state);
+  if (!ok) {
+    return false;
+  }
+  ok = el_set_prompt(state->input_state.el, shell_get_prompt_el_cb);
+  if (!ok) {
+    return false;
+  }
+  // TODO
+  // el_set(EL_EDITOR, "emacs" "vi")
+  return true;
+}
+
+ExitCode shell_execute_repl(const size_t argc, char *const *const argv) {
+  if (argc == 0) {
+    RETURNS_VOID shell_print_error("[INTERNAL] missing argv[0]");
+    return ExitCodeImplementationError;
+  }
+
+  ShellSetupResult setup_res = shell_setup_repl(argv[0]);
+
+  if (setup_res.type != ShellSetupResultTypeOk) {
+    const char *errors[] = {"[INTERNAL]: ", tstr_cstr(&setup_res.data.error)};
+    RETURNS_VOID shell_print_errors(errors, ARRAY_SIZE(errors));
+
+    tstr_free(&setup_res.data.error);
+
+    return ExitCodeImplementationError;
+  }
+
+  ShellState state = setup_res.data.ok;
+
+  bool ok = shell_setup_prompt(&state);
+  if (!ok) {
+    RETURNS_VOID shell_print_error("[INTERNAL]: el prompt set error");
+
+    tstr_free(&setup_res.data.error);
+
+    return ExitCodeImplementationError;
+  }
 
   while (state.alive) {
     shell_repl_step(&state);
   }
 
-  tstr_free(&state.cwd);
+  shell_destroy_state(&state);
 
   return state.result;
 }

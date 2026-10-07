@@ -30,4 +30,7 @@ fi
 #
 # - Edit this to change how your program runs locally
 # - Edit .codecrafters/run.sh to change how your program runs remotely
-exec "$(realpath "$(dirname "$0")/$BUILD_DIR/shell")" "$@"
+
+SHELL="$(realpath "$(dirname "$0")/$BUILD_DIR/shell")"
+
+exec "$SHELL" "$@"

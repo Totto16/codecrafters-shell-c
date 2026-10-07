@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "./utils.h"
@@ -18,4 +19,4 @@ typedef enum : uint8_t {
   ExitCodeCommandNotFound = 127
 } ExitCode;
 
-NODISCARD ExitCode shell_execute_repl(void);
+NODISCARD ExitCode shell_execute_repl(size_t argc, char *const *const argv);

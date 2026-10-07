@@ -15,7 +15,9 @@ target_compile_options(shell PRIVATE
     -Werror
 )
 
-target_link_libraries(shell PRIVATE readline)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(libedit REQUIRED IMPORTED_TARGET libedit)
+target_link_libraries(shell PRIVATE PkgConfig::libedit)
 
 find_package(tstr CONFIG REQUIRED)
 target_link_libraries(shell PRIVATE tstr)

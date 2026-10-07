@@ -2,21 +2,30 @@
 #include "./input.h"
 #include "./utils.h"
 
-#include <readline/readline.h>
+#include <histedit.h>
 
 void free_shell_input_ok_result(ShellInputOkResult ok) {
-  RETURNS_VOID rl_free(ok.data);
+  UNUSED(ok);
+  // NOte. no need to free anything, the line buffer is managed by the global
+  // instance of  EditLine *el
 }
 
 #define SHELL_INPUT_BUFFER_SIZE 1024
 
-ShellInputResult shell_get_input(const char *const prompt) {
-  char *line = readline(prompt);
+ShellInputResult shell_get_input(ShellInputState *const state) {
+  int count = 0;
+  const char *line = el_gets(state->el, &count);
 
   if (line == NULL) {
     return (ShellInputResult){.type = ShellInputResultTypeEOF, .data = {}};
   }
 
-  return (ShellInputResult){.type = ShellInputResultTypeOk,
-                            .data = {.ok = {.data = line}}};
+  if (count < 0) {
+    return (ShellInputResult){.type = ShellInputResultTypeError,
+                              .data = {.error = TSTR_LIT("count is negative")}};
+  }
+
+  return (ShellInputResult){
+      .type = ShellInputResultTypeOk,
+      .data = {.ok = {.data = (tstr_view){.data = line, .len = count}}}};
 }
