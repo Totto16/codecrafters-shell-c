@@ -58,13 +58,11 @@ typedef struct {
 
 typedef enum : uint8_t {
   ParseStateDoubleQuoteTypeNormal = 0,
+  ParseStateDoubleQuoteTypeEscape,
 } ParseStateDoubleQuoteType;
 
 typedef struct {
   ParseStateDoubleQuoteType type;
-  union {
-    char last_char_TODO;
-  } data;
 } ParseStateDoubleQuote;
 
 typedef struct {
@@ -158,8 +156,8 @@ static ParsedProgramResult shell_parse_input(tstr_view input) {
       } else if (character == '"') {
         state = (ParseState){
             .type = ParseStateTypeDoubleQuote,
-            .data = {.double_quote = {.type = ParseStateDoubleQuoteTypeNormal,
-                                      .data = {}}}};
+            .data = {
+                .double_quote = {.type = ParseStateDoubleQuoteTypeNormal}}};
 
         if (start == i) {
           // no string before it, just advance start
@@ -211,22 +209,60 @@ static ParsedProgramResult shell_parse_input(tstr_view input) {
       break;
     }
     case ParseStateTypeDoubleQuote: {
-      if (character == '"') {
-        const tstr_view orig = (tstr_view){.data = input.data + i, .len = 0};
+      switch (state.data.double_quote.type) {
+      case ParseStateDoubleQuoteTypeNormal: {
+        if (character == '"') {
+          const tstr_view orig = (tstr_view){.data = input.data + i, .len = 0};
 
-        const size_t add_raw_span = 1;
+          const size_t add_raw_span = 1;
 
-        ADD_TO_ACCUMULATOR(orig, add_raw_span);
+          ADD_TO_ACCUMULATOR(orig, add_raw_span);
 
-        state = (ParseState){.type = ParseStateTypeNormal, .data = {}};
+          state = (ParseState){.type = ParseStateTypeNormal, .data = {}};
 
-        start = i + 1;
-      } else {
-        const tstr_view orig = (tstr_view){.data = input.data + i, .len = 1};
+          start = i + 1;
+        } else if (character == '\\') {
+          state.data.double_quote =
+              (ParseStateDoubleQuote){.type = ParseStateDoubleQuoteTypeEscape};
+        } else {
+          const tstr_view orig = (tstr_view){.data = input.data + i, .len = 1};
 
-        const size_t add_raw_span = 1;
+          const size_t add_raw_span = 1;
 
-        ADD_TO_ACCUMULATOR(orig, add_raw_span);
+          ADD_TO_ACCUMULATOR(orig, add_raw_span);
+        }
+        break;
+      }
+      case ParseStateDoubleQuoteTypeEscape: {
+
+        if (character == '"' || character == '\\' || character == '$' ||
+            character == '`' || character == '\n') {
+          const tstr_view orig = (tstr_view){.data = input.data + i, .len = 1};
+
+          const size_t add_raw_span = 2;
+
+          ADD_TO_ACCUMULATOR(orig, add_raw_span);
+
+        } else {
+          const tstr_view orig =
+              (tstr_view){.data = input.data + i - 1, .len = 2};
+
+          const size_t add_raw_span = 2;
+
+          ADD_TO_ACCUMULATOR(orig, add_raw_span);
+        }
+
+        state.data.double_quote =
+            (ParseStateDoubleQuote){.type = ParseStateDoubleQuoteTypeNormal};
+
+        break;
+      }
+      default: {
+        return (ParsedProgramResult){
+            .is_ok = false,
+            .data = {.error = TSTR_LIT(
+                         "[INTERNAL] wrong double quote parse state")}};
+      }
       }
       break;
     }
