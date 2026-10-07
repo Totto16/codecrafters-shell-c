@@ -118,6 +118,11 @@ shell_virtual_fn_set_current_working_directory(shell_context ctx,
     return false;
   }
 
+  int res = chdir(tstr_cstr(normalized_cwd));
+  if (res < 0) {
+    return false;
+  }
+
   tstr_free(&(state->cwd));
   state->cwd = tstr_dup(normalized_cwd);
 
