@@ -45,9 +45,7 @@ static tstr path_join_limbs(const tstr_view *const views, const size_t count) {
 
     tstr_view view = views[i];
 
-    if (tstr_view_starts_with(view, "/")) {
-      view = tstr_sub_until_end(view, 1);
-    }
+    view = path_normalize_dir_ending(view);
 
     if (view.len == 0) {
       // don't allow this
@@ -255,6 +253,10 @@ static tstr path_resolve_home_dir(tstr_view path) {
     return tstr_null();
   }
 
+  if (path.len == 0) {
+    return tstr_from(home_env);
+  }
+
   tstr_view limbs[2] = {tstr_view_from(home_env), path};
 
   tstr final_path = path_join_limbs(limbs, ARRAY_SIZE(limbs));
@@ -285,13 +287,14 @@ NODISCARD tstr path_resolve_to_absolute(tstr_view cwd, tstr_view path) {
   const char first_char = path.data[0];
   if (first_char == '/') {
     // absolute path, return it
+
     return tstr_from_view(path);
   } else if (first_char == '~') {
     // path with ~, resolve that and check that the result is absolute
+
     path = tstr_sub_until_end(path, 1);
     return path_validate_absolute(path_resolve_home_dir(path));
   } else {
-
     // we have a relative path
 
     tstr_view limbs[2] = {cwd, path};
@@ -302,6 +305,6 @@ NODISCARD tstr path_resolve_to_absolute(tstr_view cwd, tstr_view path) {
       return tstr_null();
     }
 
-    return final_path;
+    return path_validate_absolute(final_path);
   }
 }
