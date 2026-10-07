@@ -38,16 +38,21 @@ bool path_exists_and_is_dir(tstr_view path) {
 }
 
 static tstr path_join_limbs(const tstr_view *const views, const size_t count) {
-  // start with 0, so that every path is an absolute path at the end
+  // start with "/", so that every path is an absolute path at the end
   tstr result = tstr_from("/");
 
   for (size_t i = 0; i < count; ++i) {
 
     tstr_view view = views[i];
 
-    view = path_normalize_dir_ending(view);
-
+    if (tstr_view_starts_with(view, "/")) {
+      view = tstr_sub_until_end(view, 1);
+    }
     if (view.len == 0) {
+      if (i == 0) {
+        // allow it for the first limb
+        continue;
+      }
       // don't allow this
 
       tstr_free(&result);
