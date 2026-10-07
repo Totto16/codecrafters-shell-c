@@ -31,15 +31,17 @@ typedef struct {
     }                                                                          \
   } while (false)
 
-#define ADD_TO_ACCUMULATOR(acc, argument)                                      \
+#define ADD_TO_ACCUMULATOR(argument, add_raw_span)                             \
   do {                                                                         \
-    TStrResult res = tstr_cat_len(&(acc), (argument).data, (argument).len);    \
+    TStrResult res =                                                           \
+        tstr_cat_len(&(acc.str), (argument).data, (argument).len);             \
                                                                                \
     if (res != TStrResultOk) {                                                 \
       return (ParsedProgramResult){                                            \
           .is_ok = false,                                                      \
           .data = {.error = TSTR_LIT("OOM error in internal parsing")}};       \
     }                                                                          \
+    acc.raw.len += add_raw_span;                                               \
   } while (false)
 
 typedef enum : uint8_t {
@@ -49,15 +51,12 @@ typedef enum : uint8_t {
 } ParseStateType;
 
 typedef struct {
-  tstr acc;
-  size_t acc_start;
-} ParseStateSingleQuote;
+  tstr str;
+  tstr_view raw;
+} ParseStateAccumulator;
 
 typedef struct {
   ParseStateType type;
-  union {
-    ParseStateSingleQuote single;
-  } data;
 } ParseState;
 
 static ParsedProgramResult shell_parse_input(tstr_view input) {
@@ -70,33 +69,63 @@ static ParsedProgramResult shell_parse_input(tstr_view input) {
   };
 
   size_t start = 0;
-  ParseState state = {.type = ParseStateTypeNormal, .data = {}};
+  ParseState state = {.type = ParseStateTypeNormal};
+  ParseStateAccumulator acc = {.raw = (tstr_view){.data = input.data, .len = 0},
+                               .str = tstr_from("")};
 
   for (size_t i = 0; i < input.len; ++i) {
-
     const char character = input.data[i];
 
     switch (state.type) {
     case ParseStateTypeNormal: {
       if (isspace(character) != 0) {
         if (start == i) {
-          // the next string starts with a whitespace, so skip this whitespace
-          // as end delimiter
+
+          // if the accumulator has data, we need to add that data to the
+          // arguments, as this is an end delimiter to compound strings ("a'b'c"
+          // or similar)
+          if (acc.raw.len != 0) {
+            ShellArgument argument = {.original = acc.raw, .parsed = acc.str};
+
+            ADD_SHELL_ARGUMENT(argument);
+
+            // we move the tstr out of the accumulator to argument, so no need
+            // to free the string
+            acc = (ParseStateAccumulator){
+                .raw = (tstr_view){.data = input.data + start, .len = 0},
+                .str = tstr_from("")};
+          }
+
+          // the next chacrater is a whitespace, so skip it, until we either
+          // encounter another character as end delimiter
+          acc.raw.data += 1;
+          acc.raw.len = 0;
+
+          start = i + 1;
         } else {
 
-          tstr_view orig =
+          const tstr_view orig =
               (tstr_view){.data = input.data + start, .len = i - start};
-          ShellArgument argument = {.original = orig,
-                                    .parsed = tstr_from_view(orig)};
+
+          const size_t add_raw_span = i - start;
+
+          ADD_TO_ACCUMULATOR(orig, add_raw_span);
+
+          ShellArgument argument = {.original = acc.raw, .parsed = acc.str};
 
           ADD_SHELL_ARGUMENT(argument);
+
+          start = i + 1;
+
+          // we move the tstr out of the accumulator to argument, so no need to
+          // free the string
+          acc = (ParseStateAccumulator){
+              .raw = (tstr_view){.data = input.data + start, .len = 0},
+              .str = tstr_from("")};
         }
 
-        start = i + 1;
       } else if (character == '\'') {
-        state = (ParseState){
-            .type = ParseStateTypeSingleQuote,
-            .data = {.single = {.acc = tstr_from(""), .acc_start = start}}};
+        state = (ParseState){.type = ParseStateTypeSingleQuote};
 
         if (start == i) {
           // no string before it, just advance start
@@ -105,14 +134,16 @@ static ParsedProgramResult shell_parse_input(tstr_view input) {
           // it
           // the thing before this is a normal string without quotes, otherwise
           // it would already be consumed
-          tstr_view orig =
+          const tstr_view orig =
               (tstr_view){.data = input.data + start, .len = i - start};
-          ADD_TO_ACCUMULATOR(state.data.single.acc, orig);
+          const size_t add_raw_span = (i - start) + 1;
+
+          ADD_TO_ACCUMULATOR(orig, add_raw_span);
         }
         start = i + 1;
 
       } else if (character == '"') {
-        state = (ParseState){.type = ParseStateTypeDoubleQuote, .data = {}};
+        state = (ParseState){.type = ParseStateTypeDoubleQuote};
 
         // if we have some string before "" we need to set the accumulator to it
       }
@@ -122,27 +153,16 @@ static ParsedProgramResult shell_parse_input(tstr_view input) {
     case ParseStateTypeSingleQuote: {
       if (character == '\'') {
 
-        tstr_view orig =
+        const tstr_view orig =
             (tstr_view){.data = input.data + start, .len = i - start};
 
-        ADD_TO_ACCUMULATOR(state.data.single.acc, orig);
+        const size_t add_raw_span = (i - start) + 2;
 
-        tstr_view whole_orig =
-            (tstr_view){.data = input.data + state.data.single.acc_start,
-                        .len = i - state.data.single.acc_start + 1};
+        ADD_TO_ACCUMULATOR(orig, add_raw_span);
 
-        ShellArgument argument = {.original = whole_orig,
-                                  .parsed = state.data.single.acc};
-
-        ADD_SHELL_ARGUMENT(argument);
-
-        // we move out of the acc, so just setting it to null for safety
-        state.data.single.acc = tstr_null();
-
-        state = (ParseState){.type = ParseStateTypeNormal, .data = {}};
+        state = (ParseState){.type = ParseStateTypeNormal};
 
         start = i + 1;
-      } else {
       }
       break;
     }
@@ -177,12 +197,38 @@ static ParsedProgramResult shell_parse_input(tstr_view input) {
   }
 
   if (start < input.len) {
-    tstr_view orig =
+    const tstr_view orig =
         (tstr_view){.data = input.data + start, .len = input.len - start};
-    ShellArgument argument = {.original = orig, .parsed = tstr_from_view(orig)};
+
+    const size_t add_raw_span = input.len - start;
+
+    ADD_TO_ACCUMULATOR(orig, add_raw_span);
+
+    ShellArgument argument = {.original = acc.raw, .parsed = acc.str};
 
     ADD_SHELL_ARGUMENT(argument);
+
+    // we move the tstr out of the accumulator to argument, so no need to
+    // free the string
+    acc = (ParseStateAccumulator){
+        .raw = (tstr_view){.data = input.data + start, .len = 0},
+        .str = tstr_from("")};
   }
+
+  // drain the accumulator
+  if (acc.raw.len != 0) {
+    ShellArgument argument = {.original = acc.raw, .parsed = acc.str};
+
+    ADD_SHELL_ARGUMENT(argument);
+
+    // we move the tstr out of the accumulator to argument, so no need
+    // to free the string
+    acc = (ParseStateAccumulator){
+        .raw = (tstr_view){.data = input.data + start, .len = 0},
+        .str = tstr_from("")};
+  }
+
+  tstr_free(&acc.str);
 
   return (ParsedProgramResult){.is_ok = true, .data = {.program = program}};
 }
@@ -230,17 +276,25 @@ ShellParseDataResult shell_parse_data(tstr_view input) {
   }
 
   // TODO: hide behind some sort of set +d or similar debug option
-  for (size_t i = 0; i < TVEC_LENGTH(ShellArgument, program.args); ++i) {
-
-    const ShellArgument *const arg =
-        TVEC_GET_AT(ShellArgument, &(program.args), i);
-
-    int res =
-        fprintf(stderr, "index: %zu\nvalue: " TSTR_FMT "\nraw: " TSTR_FMT "\n", i,
-                TSTR_FMT_ARGS(arg->parsed), TSV_FMT_ARGS(arg->original));
+  if (false) {
+    int res = fprintf(stderr, "Arguments:\n");
     if (res < 0) {
       return (ShellParseDataResult){.type = ShellParseDataResultTypeError,
                                     .data = {.error = TSTR_LIT("IO Error")}};
+    }
+
+    for (size_t i = 0; i < TVEC_LENGTH(ShellArgument, program.args); ++i) {
+
+      const ShellArgument *const arg =
+          TVEC_GET_AT(ShellArgument, &(program.args), i);
+
+      int res =
+          fprintf(stderr, "<%zu>\n  value: " TSTR_FMT "\n  raw: " TSTR_FMT "\n",
+                  i, TSTR_FMT_ARGS(arg->parsed), TSV_FMT_ARGS(arg->original));
+      if (res < 0) {
+        return (ShellParseDataResult){.type = ShellParseDataResultTypeError,
+                                      .data = {.error = TSTR_LIT("IO Error")}};
+      }
     }
   }
 
