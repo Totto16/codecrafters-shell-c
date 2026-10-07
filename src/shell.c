@@ -211,7 +211,7 @@ void shell_repl_step(ShellState *state) {
     free_shell_command_not_found(&parse.data.command_not_found);
 
     if (res < 0) {
-      RETURNS_VOID shell_exit(state, ExitCodeGenericError);
+      RETURNS_VOID shell_exit(state, ExitCodeIOError);
 
       RETURNS_VOID shell_print_error("[INTERNAL] output error");
       break;
@@ -227,7 +227,7 @@ void shell_repl_step(ShellState *state) {
     tstr_free(&parse.data.error);
 
     if (res < 0) {
-      RETURNS_VOID shell_exit(state, ExitCodeGenericError);
+      RETURNS_VOID shell_exit(state, ExitCodeIOError);
 
       RETURNS_VOID shell_print_error("[INTERNAL] output error");
       break;

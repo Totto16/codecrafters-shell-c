@@ -161,6 +161,25 @@ static void echo_free_arguments(shell_dynamic_args args) {
   free(args);
 }
 
+#define RETURN_IO_ERROR(name)                                                  \
+  do {                                                                         \
+    int res = fprintf(stderr, "%s: IO Error\n", name);                         \
+    if (res < 0) {                                                             \
+      /* Note: we already have an error, so no reporting possible here */      \
+    }                                                                          \
+    return ExitCodeIOError;                                                    \
+  } while (false)
+
+#define RETURN_IMPL_ERROR(name, msg)                                           \
+  do {                                                                         \
+    int res = fprintf(stderr, "%s: [INTERNAL] Implementation Error: %s\n",     \
+                      name, msg);                                              \
+    if (res < 0) {                                                             \
+      RETURN_IO_ERROR(name);                                                   \
+    }                                                                          \
+    return ExitCodeImplementationError;                                        \
+  } while (false)
+
 static ExitCode echo_invoke(shell_dynamic_args args, const ShellHandle shell) {
   UNUSED(shell);
   const EchoData *const echo_data = args;
@@ -170,7 +189,7 @@ static ExitCode echo_invoke(shell_dynamic_args args, const ShellHandle shell) {
     if (i != 0) {
       int res = fprintf(stdout, " ");
       if (res < 0) {
-        return ExitCodeGenericError;
+        RETURN_IO_ERROR("echo");
       }
     }
 
@@ -179,14 +198,14 @@ static ExitCode echo_invoke(shell_dynamic_args args, const ShellHandle shell) {
 
     int res = fprintf(stdout, TSTR_FMT, TSTR_FMT_ARGS(arg->parsed));
     if (res < 0) {
-      return ExitCodeGenericError;
+      RETURN_IO_ERROR("echo");
     }
   }
 
   if (echo_data->newline) {
     int res = fprintf(stdout, "\n");
     if (res < 0) {
-      return ExitCodeGenericError;
+      RETURN_IO_ERROR("echo");
     }
   }
 
@@ -319,7 +338,7 @@ static ExitCode type_invoke(shell_dynamic_args args, const ShellHandle shell) {
       int res = fprintf(stdout, TSTR_FMT " is a shell builtin\n",
                         TSV_FMT_ARGS(arg->name));
       if (res < 0) {
-        return ExitCodeGenericError;
+        RETURN_IO_ERROR("type");
       }
       break;
     }
@@ -331,7 +350,7 @@ static ExitCode type_invoke(shell_dynamic_args args, const ShellHandle shell) {
       free_executable_data(&command_type.data.executable);
 
       if (res < 0) {
-        return ExitCodeGenericError;
+        RETURN_IO_ERROR("type");
       }
       break;
     }
@@ -340,12 +359,12 @@ static ExitCode type_invoke(shell_dynamic_args args, const ShellHandle shell) {
       int res =
           fprintf(stdout, TSTR_FMT ": not found\n", TSV_FMT_ARGS(arg->name));
       if (res < 0) {
-        return ExitCodeGenericError;
+        RETURN_IO_ERROR("type");
       }
       break;
     }
     default: {
-      return ExitCodeImplementationError;
+      RETURN_IMPL_ERROR("type", "Invalid command type");
     }
     }
   }
@@ -409,7 +428,7 @@ pwd_parse_arguments(const ShellArguments *args) {
     RETURN_ARGUMENT(PwdData, pwd_data);
   }
   return (ShellParseArgumentsResult){
-      .is_ok = false, .data = {.error = TSTR_LIT("exit: too many arguments")}};
+      .is_ok = false, .data = {.error = TSTR_LIT("pwd: too many arguments")}};
 }
 
 static void pwd_free_arguments(shell_dynamic_args args) { free(args); }
@@ -420,13 +439,13 @@ static ExitCode pwd_invoke(shell_dynamic_args args, const ShellHandle shell) {
   tstr_view cwd = shell.function.get_current_working_directory(shell.context);
 
   if (cwd.len == 0) {
-    return ExitCodeGenericError;
+    RETURN_IMPL_ERROR("pwd", "cwd get error");
   }
 
   int res = fprintf(stdout, TSTR_FMT "\n", TSV_FMT_ARGS(cwd));
 
   if (res < 0) {
-    return ExitCodeGenericError;
+    RETURN_IO_ERROR("pwd");
   }
 
   return ExitCodeSuccess;
@@ -477,7 +496,7 @@ cd_parse_arguments(const ShellArguments *args) {
   }
 
   return (ShellParseArgumentsResult){
-      .is_ok = false, .data = {.error = TSTR_LIT("exit: too many arguments")}};
+      .is_ok = false, .data = {.error = TSTR_LIT("cd: too many arguments")}};
 }
 
 static void cd_free_arguments(shell_dynamic_args args) { free(args); }
@@ -488,18 +507,18 @@ static ExitCode cd_invoke(shell_dynamic_args args, const ShellHandle shell) {
   tstr_view cwd = shell.function.get_current_working_directory(shell.context);
 
   if (cwd.len == 0) {
-    return ExitCodeGenericError;
+    RETURN_IMPL_ERROR("cd", "cwd get error");
   }
 
   tstr resolved_path = path_resolve_to_absolute(cwd, cd_data->path);
 
   if (tstr_is_null(&resolved_path)) {
-    return ExitCodeGenericError;
+    RETURN_IMPL_ERROR("cd", "path resolve error");
   }
 
   if (!path_is_absolute(tstr_as_view(&resolved_path))) {
     tstr_free(&resolved_path);
-    return ExitCodeGenericError;
+    RETURN_IMPL_ERROR("cd", "resolved path is not absolute");
   }
 
   tstr path = path_normalize(tstr_as_view(&resolved_path));
@@ -507,20 +526,21 @@ static ExitCode cd_invoke(shell_dynamic_args args, const ShellHandle shell) {
   tstr_free(&resolved_path);
 
   if (tstr_is_null(&path)) {
-    return ExitCodeGenericError;
+    RETURN_IMPL_ERROR("cd", "path normalize error");
   }
 
   if (!path_is_absolute(tstr_as_view(&path))) {
     tstr_free(&path);
-    return ExitCodeGenericError;
+    RETURN_IMPL_ERROR("cd", "normalized path is not absolute");
   }
 
   if (!path_exists_and_is_dir(tstr_as_view(&path))) {
     int res = fprintf(stdout, "cd: " TSTR_FMT ": No such file or directory\n",
                       TSV_FMT_ARGS(cd_data->path));
     if (res < 0) {
-      return ExitCodeGenericError;
+      RETURN_IO_ERROR("cd");
     }
+
     return ExitCodeGenericError;
   }
 
@@ -529,7 +549,7 @@ static ExitCode cd_invoke(shell_dynamic_args args, const ShellHandle shell) {
   tstr_free(&path);
 
   if (!ok) {
-    return ExitCodeGenericError;
+    RETURN_IMPL_ERROR("cd", "cwd set error");
   }
 
   return ExitCodeSuccess;

@@ -11,6 +11,7 @@ typedef enum : uint8_t {
   ExitCodeGenericError = 1,
   //
   ExitCodeOOM = 13,
+  ExitCodeIOError = 14,
   //
   ExitCodeImplementationError = 42,
   //

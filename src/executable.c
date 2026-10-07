@@ -199,7 +199,7 @@ ExitCode invoke_executable(const tstr *path, const tstr *const invoke_name,
   int res = waitpid(pid, &status, 0);
   if (res < 0) {
     // TODO: print execute error
-    return ExitCodeGenericError;
+    return ExitCodeIOError;
   }
 
   // TODO: should we return if the process exited with a signal?
