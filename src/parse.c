@@ -55,8 +55,22 @@ typedef struct {
   tstr_view raw;
 } ParseStateAccumulator;
 
+typedef enum : uint8_t {
+  ParseStateDoubleQuoteTypeNormal = 0,
+} ParseStateDoubleQuoteType;
+
+typedef struct {
+  ParseStateDoubleQuoteType type;
+  union {
+    char last_char_TODO;
+  } data;
+} ParseStateDoubleQuote;
+
 typedef struct {
   ParseStateType type;
+  union {
+    ParseStateDoubleQuote double_quote;
+  } data;
 } ParseState;
 
 static ParsedProgramResult shell_parse_input(tstr_view input) {
@@ -69,7 +83,7 @@ static ParsedProgramResult shell_parse_input(tstr_view input) {
   };
 
   size_t start = 0;
-  ParseState state = {.type = ParseStateTypeNormal};
+  ParseState state = {.type = ParseStateTypeNormal, .data = {}};
   ParseStateAccumulator acc = {.raw = (tstr_view){.data = input.data, .len = 0},
                                .str = tstr_from("")};
 
@@ -125,15 +139,14 @@ static ParsedProgramResult shell_parse_input(tstr_view input) {
         }
 
       } else if (character == '\'') {
-        state = (ParseState){.type = ParseStateTypeSingleQuote};
+        state = (ParseState){.type = ParseStateTypeSingleQuote, .data = {}};
 
         if (start == i) {
           // no string before it, just advance start
         } else {
-          // if we have some string before ' we need to set the accumulator to
-          // it
-          // the thing before this is a normal string without quotes, otherwise
-          // it would already be consumed
+          // if we have some string before ' we need to set the accumulator
+          // to it the thing before this is a normal string without quotes,
+          // otherwise it would already be consumed
           const tstr_view orig =
               (tstr_view){.data = input.data + start, .len = i - start};
           const size_t add_raw_span = (i - start) + 1;
@@ -141,11 +154,25 @@ static ParsedProgramResult shell_parse_input(tstr_view input) {
           ADD_TO_ACCUMULATOR(orig, add_raw_span);
         }
         start = i + 1;
+      } else if (character == '\'' || character == '"') {
+        state = (ParseState){
+            .type = ParseStateTypeDoubleQuote,
+            .data = {.double_quote = {.type = ParseStateDoubleQuoteTypeNormal,
+                                      .data = {}}}};
 
-      } else if (character == '"') {
-        state = (ParseState){.type = ParseStateTypeDoubleQuote};
+        if (start == i) {
+          // no string before it, just advance start
+        } else {
+          // if we have some string before " we need to set the accumulator
+          // to it the thing before this is a normal string without quotes,
+          // otherwise it would already be consumed
+          const tstr_view orig =
+              (tstr_view){.data = input.data + start, .len = i - start};
+          const size_t add_raw_span = (i - start) + 1;
 
-        // if we have some string before "" we need to set the accumulator to it
+          ADD_TO_ACCUMULATOR(orig, add_raw_span);
+        }
+        start = i + 1;
       }
 
       break;
@@ -160,16 +187,30 @@ static ParsedProgramResult shell_parse_input(tstr_view input) {
 
         ADD_TO_ACCUMULATOR(orig, add_raw_span);
 
-        state = (ParseState){.type = ParseStateTypeNormal};
+        state = (ParseState){.type = ParseStateTypeNormal, .data = {}};
 
         start = i + 1;
       }
       break;
     }
     case ParseStateTypeDoubleQuote: {
-      return (ParsedProgramResult){
-          .is_ok = false,
-          .data = {.error = TSTR_LIT("[INTERNAL] TODO: Not Yet Implemented")}};
+      if (character == '"') {
+        const tstr_view orig = (tstr_view){.data = input.data + i, .len = 0};
+
+        const size_t add_raw_span = 1;
+
+        ADD_TO_ACCUMULATOR(orig, add_raw_span);
+
+        state = (ParseState){.type = ParseStateTypeNormal, .data = {}};
+
+        start = i + 1;
+      } else {
+        const tstr_view orig = (tstr_view){.data = input.data + i, .len = 1};
+
+        const size_t add_raw_span = 1;
+
+        ADD_TO_ACCUMULATOR(orig, add_raw_span);
+      }
       break;
     }
     default: {
