@@ -6,6 +6,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <readline/readline.h>
 #include <tstr/tstr.h>
 
 #include "./builtins.h"
@@ -18,6 +19,13 @@
 static void shell_setup_repl(void) {
   // Flush after every printf
   RETURNS_VOID setbuf(stdout, NULL);
+
+  int res = rl_initialize();
+  // TODO: check the result
+  UNUSED(res);
+
+  // TODO: setup custom readline behaviour
+  //  this includes: signal handling, tab completion, history
 }
 
 typedef struct {
@@ -37,21 +45,7 @@ static tstr shell_get_prompt(const ShellState *const state) {
   // TODO. support setting the prompt dynamically
   UNUSED(state);
 
-  return TSTR_LIT("$");
-}
-
-static bool shell_print_prompt(const ShellState *const state) {
-  tstr prompt = shell_get_prompt(state);
-
-  int res = fprintf(stdout, TSTR_FMT " ", TSTR_FMT_ARGS(prompt));
-
-  tstr_free(&prompt);
-
-  if (res < 0) {
-    return false;
-  }
-
-  return true;
+  return TSTR_LIT("$ ");
 }
 
 static void shell_print_error(const char *error) {
@@ -138,16 +132,23 @@ static ShellVirtualFunctions g_shell_functions = {
 };
 
 void shell_repl_step(ShellState *state) {
+  tstr prompt;
   if (state->interactive) {
-    bool ok = shell_print_prompt(state);
-    if (!ok) {
+    prompt = shell_get_prompt(state);
+
+    if (tstr_is_null(&prompt)) {
       RETURNS_VOID shell_exit(state, ExitCodeGenericError);
 
       RETURNS_VOID shell_print_error("[INTERNAL] prompt print error");
       return;
     }
+  } else {
+    prompt = tstr_null();
   }
-  ShellInputResult input = shell_get_input();
+
+  ShellInputResult input = shell_get_input(tstr_cstr(&prompt));
+
+  tstr_free(&prompt);
 
   if (input.type == ShellInputResultTypeEOF) {
     RETURNS_VOID shell_exit(state, state->command_state.exit_code);
@@ -155,18 +156,14 @@ void shell_repl_step(ShellState *state) {
   }
 
   if (input.type != ShellInputResultTypeOk) {
-    ExitCode code = ExitCodeGenericError;
-    if (input.type == ShellInputResultTypeError) {
-      code = input.data.err;
-    }
-    RETURNS_VOID shell_exit(state, code);
+    RETURNS_VOID shell_exit(state, ExitCodeImplementationError);
 
     RETURNS_VOID shell_print_error("Can't read input");
     return;
   }
 
   ShellInputOkResult data = input.data.ok;
-  ShellParseDataResult parse = shell_parse_data(data.data);
+  ShellParseDataResult parse = shell_parse_data(tstr_view_from(data.data));
 
   switch (parse.type) {
   case ShellParseDataResultTypeCommand: {
@@ -246,10 +243,6 @@ void shell_repl_step(ShellState *state) {
     RETURNS_VOID shell_print_error("[INTERNAL] Invalid parse result");
     break;
   }
-  }
-
-  if (data.end) {
-    RETURNS_VOID shell_exit(state, state->command_state.exit_code);
   }
 
   RETURNS_VOID free_shell_input_ok_result(data);
