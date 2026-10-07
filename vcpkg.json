@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
   "dependencies": [
     {
       "name": "tstr"
@@ -7,10 +8,18 @@
       "name": "tvec"
     },
     {
-      "name": "libedit"
-    },
-    {
       "name": "readline"
     }
-  ]
+  ],
+  "features": {
+    "libedit": {
+      "description": "Use libedit",
+      "dependencies": [
+        {
+          "name": "libedit"
+        }
+      ]
+    }
+  },
+  "default-features": []
 }
