@@ -31,12 +31,22 @@ typedef struct {
 } ShellCommandExecutable;
 
 typedef struct {
+  tstr location;
+} ShellRedirectLocation;
+
+typedef struct {
+  ShellRedirectLocation stdout;
+  ShellRedirectLocation stderr;
+} ShellRedirectSettings;
+
+typedef struct {
   ShellCommandType type;
   union {
     ShellCommandBuiltin builtin;
     ShellCommandExecutable executable;
   } data;
   ShellArguments args;
+  ShellRedirectSettings settings;
 } ShellCommand;
 
 typedef struct {
@@ -48,7 +58,8 @@ typedef struct {
   } data;
 } ShellParseDataResult;
 
-NODISCARD ShellParseDataResult shell_parse_data(tstr_view input);
+NODISCARD ShellParseDataResult shell_parse_data(tstr_view input,
+                                                const ShellHandle shell);
 
 void free_shell_arguments(ShellArguments *args);
 

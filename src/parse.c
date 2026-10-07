@@ -1,10 +1,12 @@
 
 #include "./parse.h"
 #include "./command.h"
+#include "./file.h"
 
 typedef struct {
   ShellArgument program;
   ShellArguments args;
+  ShellRedirectSettings settings;
 } ParsedProgram;
 
 typedef struct {
@@ -72,14 +74,22 @@ typedef struct {
   } data;
 } ParseState;
 
-static ParsedProgramResult shell_parse_input(tstr_view input) {
+#define RETURN_IMPL_ERROR(err)                                                 \
+  do {                                                                         \
+    return (ParsedProgramResult){.is_ok = false,                               \
+                                 .data = {.error = TSTR_LIT(err)}};            \
+                                                                               \
+  } while (false)
 
-  // TODO: proper parsing, escapeing, "   " , proper whitespace etc
+static void free_shell_argument(ShellArgument *arg);
 
+static ParsedProgramResult shell_parse_input(tstr_view input,
+                                             const ShellHandle shell) {
   ParsedProgram program = {
       .program = {.parsed = tstr_null(), .original = TSTR_TSV("")},
       .args = TVEC_EMPTY(ShellArgument),
-  };
+      .settings = {.stdout = {.location = tstr_null()},
+                   .stderr = {.location = tstr_null()}}};
 
   size_t start = 0;
   ParseState state = {.type = ParseStateTypeNormal, .data = {}};
@@ -342,6 +352,96 @@ static ParsedProgramResult shell_parse_input(tstr_view input) {
 
   tstr_free(&acc.str);
 
+  // check for redirect settings, this is easier to do here, as it would get
+  // complicated in the parse step
+
+  for (size_t i = 0; i < TVEC_LENGTH(ShellArgument, program.args); ++i) {
+
+    ShellArgument *const arg =
+        TVEC_GET_AT_MUT(ShellArgument, &(program.args), i);
+
+    // check for supported redirections, use the original string, as quoted
+    // strings are not valid
+    ShellRedirectLocation *location = NULL;
+    if (tstr_view_eq(arg->original, ">") || tstr_view_eq(arg->original, "1>")) {
+      location = &program.settings.stdout;
+    } else if (tstr_view_eq(arg->original, "2>")) {
+      location = &program.settings.stderr;
+    }
+
+    if (location != NULL) {
+
+      // check that we only have one redirection per program per output stream
+      if (!tstr_is_null(&(location->location))) {
+        return (ParsedProgramResult){
+            .is_ok = false,
+            .data = {
+                .error = TSTR_LIT(
+                    "more than one of the same redirection not supported")}};
+      }
+
+      // check that we have an argument
+      if (i >= TVEC_LENGTH(ShellArgument, program.args) - 1) {
+        return (ParsedProgramResult){
+            .is_ok = false,
+            .data = {.error = TSTR_LIT("Unterminated redirection")}};
+      }
+
+      ShellArgument *const next_arg =
+          TVEC_GET_AT_MUT(ShellArgument, &(program.args), i + 1);
+
+      // resolve it to an absolute path, set the location
+      {
+        tstr_view cwd =
+            shell.function.get_current_working_directory(shell.context);
+
+        if (cwd.len == 0) {
+          RETURN_IMPL_ERROR("cwd get error");
+        }
+
+        tstr resolved_path =
+            path_resolve_to_absolute(cwd, tstr_as_view(&(next_arg->parsed)));
+
+        if (tstr_is_null(&resolved_path)) {
+          RETURN_IMPL_ERROR("path resolve error");
+        }
+
+        if (!path_is_absolute(tstr_as_view(&resolved_path))) {
+          tstr_free(&resolved_path);
+          RETURN_IMPL_ERROR("resolved path is not absolute");
+        }
+
+        tstr path = path_normalize(tstr_as_view(&resolved_path));
+
+        tstr_free(&resolved_path);
+
+        if (tstr_is_null(&path)) {
+          RETURN_IMPL_ERROR("path normalize error");
+        }
+
+        if (!path_is_absolute(tstr_as_view(&path))) {
+          tstr_free(&path);
+          RETURN_IMPL_ERROR("normalized path is not absolute");
+        }
+
+        location->location = path;
+      }
+
+      // NOTE: remove those two value from the array, we are iterating over it,
+      //  so this has to be done correctly
+
+      free_shell_argument(arg);
+      free_shell_argument(next_arg);
+
+      TVEC_REMOVE(ShellArgument, &(program.args), i + 1);
+      TVEC_REMOVE(ShellArgument, &(program.args), i);
+
+      // NOTE: we can do --i, even if we underflow, as we overflow right into it
+      // again
+      --i;
+    }
+  }
+
   return (ParsedProgramResult){.is_ok = true, .data = {.program = program}};
 }
 
@@ -370,9 +470,10 @@ void free_shell_command_not_found(ShellCommandNotFound *found) {
   tstr_free(&(found->name));
 }
 
-ShellParseDataResult shell_parse_data(tstr_view input) {
+ShellParseDataResult shell_parse_data(tstr_view input,
+                                      const ShellHandle shell) {
 
-  ParsedProgramResult program_res = shell_parse_input(input);
+  ParsedProgramResult program_res = shell_parse_input(input, shell);
 
   if (!program_res.is_ok) {
     // move program_res.data.error ownership to the ShellParseDataResult struct
@@ -447,7 +548,8 @@ ShellParseDataResult shell_parse_data(tstr_view input) {
         .type = ShellParseDataResultTypeCommand,
         .data = {.command = {.type = ShellCommandTypeBuiltin,
                              .data = {.builtin = builtin_args},
-                             .args = program.args}}};
+                             .args = program.args,
+                             .settings = program.settings}}};
   }
   case CommandTypeTypeExecutable: {
 
@@ -465,7 +567,8 @@ ShellParseDataResult shell_parse_data(tstr_view input) {
         .type = ShellParseDataResultTypeCommand,
         .data = {.command = {.type = ShellCommandTypeExecutable,
                              .data = {.executable = executable},
-                             .args = program.args}}};
+                             .args = program.args,
+                             .settings = program.settings}}};
   }
   default: {
     // TODO: report internal error

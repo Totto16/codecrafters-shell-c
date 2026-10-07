@@ -206,8 +206,11 @@ void shell_repl_step(ShellState *state) {
     return;
   }
 
+  ShellHandle shell_handle = {.context = state, .function = g_shell_functions};
+
   ShellInputOkResult data = input.data.ok;
-  ShellParseDataResult parse = shell_parse_data(INPUT_DATA_VIEW(data));
+  ShellParseDataResult parse =
+      shell_parse_data(INPUT_DATA_VIEW(data), shell_handle);
 
   switch (parse.type) {
   case ShellParseDataResultTypeCommand: {
@@ -215,9 +218,6 @@ void shell_repl_step(ShellState *state) {
     switch (command.type) {
     case ShellCommandTypeBuiltin: {
       const ShellCommandBuiltin builtin = command.data.builtin;
-
-      ShellHandle shell_handle = {.context = state,
-                                  .function = g_shell_functions};
 
       ExitCode command_exit_code =
           builtin.command.invoke(builtin.args, shell_handle);
