@@ -6,17 +6,17 @@
 #include "./shell.h"
 #include "./utils.h"
 
-#if !defined(USE_READLINE)
-#error "USE_READLINE needs to be defined"
-#elif USE_READLINE == 0
+#if !defined(SHELL_USE_EDIT_LIBRARY)
+#error "SHELL_USE_EDIT_LIBRARY needs to be defined"
+#elif SHELL_USE_EDIT_LIBRARY == 0
 #include <histedit.h>
-#elif USE_READLINE == 1
+#elif SHELL_USE_EDIT_LIBRARY == 1
 #include <readline/readline.h>
 #else
-#error "USE_READLINE has invalid value"
+#error "SHELL_USE_EDIT_LIBRARY has invalid value"
 #endif
 
-#if USE_READLINE == 0
+#if SHELL_USE_EDIT_LIBRARY == 0
 typedef struct {
   tstr_view data;
 } ShellInputOkResult;

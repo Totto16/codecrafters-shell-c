@@ -24,13 +24,13 @@ fi
 # - Edit .codecrafters/compile.sh to change how your program compiles remotely
 (
   cd "$(dirname "$0")" # Ensure compile steps are run within the repository directory
-  cmake -B "$BUILD_DIR" -S . -DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON "-DCMAKE_BUILD_TYPE=$BUILD_TYPE" -DUSE_READLINE=ON
+  cmake -B "$BUILD_DIR" -S . -DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON "-DCMAKE_BUILD_TYPE=$BUILD_TYPE" -DUSE_EDIT_LIBRARY="readline"
   cmake --build "$BUILD_DIR"
 )
 
 (
   cd "$(dirname "$0")" # Ensure compile steps are run within the repository directory
-  cmake -B "${BUILD_DIR}_el" -S . -DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON "-DCMAKE_BUILD_TYPE=$BUILD_TYPE" -DUSE_READLINE=OFF
+  cmake -B "${BUILD_DIR}_el" -S . -DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON "-DCMAKE_BUILD_TYPE=$BUILD_TYPE" -DUSE_EDIT_LIBRARY="libedit"
   cmake --build "${BUILD_DIR}_el"
 )
 

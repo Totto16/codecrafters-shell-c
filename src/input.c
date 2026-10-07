@@ -7,7 +7,7 @@ void free_shell_input_ok_result(ShellInputOkResult ok) {
   // NOte. no need to free anything, the line buffer is managed by the global
   // instance of  EditLine *el
 }
-#if USE_READLINE == 0
+#if SHELL_USE_EDIT_LIBRARY == 0
 ShellInputResult shell_get_input(ShellInputState *const state) {
   int count = 0;
   const char *line = el_gets(state->el, &count);

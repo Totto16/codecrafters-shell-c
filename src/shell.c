@@ -135,7 +135,7 @@ static ShellVirtualFunctions g_shell_functions = {
     .set_current_working_directory =
         shell_virtual_fn_set_current_working_directory,
 };
-#if USE_READLINE == 0
+#if SHELL_USE_EDIT_LIBRARY == 0
 static void shell_cleanup_old_prompt(ShellState *state) {
   tstr_free(&state->input_state.last_prompt_string);
 }
@@ -309,7 +309,7 @@ static ShellSetupResult shell_setup_repl(const char *const program_name) {
   // Flush after every printf
   RETURNS_VOID setbuf(stdout, NULL);
 
-#if USE_READLINE == 0
+#if SHELL_USE_EDIT_LIBRARY == 0
   EditLine *el = el_init(program_name, stdin, stdout, stderr);
   if (el == NULL) {
     return (ShellSetupResult){
@@ -361,13 +361,13 @@ static ShellSetupResult shell_setup_repl(const char *const program_name) {
 static void shell_destroy_state(ShellState *state) {
 
   tstr_free(&(state->cwd));
-#if USE_READLINE == 0
+#if SHELL_USE_EDIT_LIBRARY == 0
   el_end(state->input_state.el);
   shell_cleanup_old_prompt(state);
 #endif
 }
 
-#if USE_READLINE == 0
+#if SHELL_USE_EDIT_LIBRARY == 0
 typedef const char *(*el_pfunct_t)(EditLine *);
 
 NODISCARD static bool el_set_prompt(EditLine *e, el_pfunct_t fn) {
@@ -426,7 +426,7 @@ err:
 
 NODISCARD static bool shell_setup_prompt(ShellState *state) {
 
-#if USE_READLINE == 0
+#if SHELL_USE_EDIT_LIBRARY == 0
   bool ok = el_set_clientdata(state->input_state.el, state);
   if (!ok) {
     return false;
