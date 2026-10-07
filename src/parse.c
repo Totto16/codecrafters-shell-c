@@ -17,9 +17,8 @@ typedef struct {
 
 #define ADD_SHELL_ARGUMENT(argument)                                           \
   do {                                                                         \
-    if (first) {                                                               \
+    if (tstr_is_null(&program.program.parsed)) {                                \
       program.program = argument;                                              \
-      first = false;                                                           \
     } else {                                                                   \
       TvecResult res = TVEC_PUSH(ShellArgument, &(program.args), argument);    \
                                                                                \
@@ -37,11 +36,10 @@ static ParsedProgramResult shell_parse_input(tstr_view input) {
   // TODO: proper parsing, escapeing, "   " , proper whitespace etc
 
   ParsedProgram program = {
-      .program = {.parsed = TSTR_LIT(""), .original = TSTR_TSV("")},
+      .program = {.parsed = tstr_null(), .original = TSTR_TSV("")},
       .args = TVEC_EMPTY(ShellArgument),
   };
 
-  bool first = true;
   size_t start = 0;
 
   for (size_t i = 0; i < input.len; ++i) {
