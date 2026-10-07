@@ -61,3 +61,5 @@ extern "C" {
 #ifdef __cplusplus
 }
 #endif
+
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(*arr))

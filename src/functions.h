@@ -10,7 +10,7 @@ typedef void *shell_dynamic_args;
 
 typedef void *shell_context;
 
-typedef tstr (*shell_fn_get_current_working_directory)(shell_context ctx);
+typedef tstr_view (*shell_fn_get_current_working_directory)(shell_context ctx);
 
 typedef bool (*shell_fn_set_current_working_directory)(
     shell_context ctx, const tstr *normalized_cwd);

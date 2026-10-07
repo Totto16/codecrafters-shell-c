@@ -65,6 +65,7 @@ static PathDirectoriesResult get_path_directories(tstr_view path_env) {
   // Note: we remove non existent directories and normalize the directories
   // here (ends without "/", no ".." or symlink normalizing, with
   // path_normalize_dir_ending)
+  // TODO: use a full normalize for the directories
 
   // TODO: should we support that?
   //  NOTE: non absolute paths in the PATH env variable are ignore (e.g.
@@ -103,7 +104,7 @@ static PathDirectoriesResult get_path_directories(tstr_view path_env) {
 
 tstr get_executable_path(tstr_view name) {
 
-  char *path_env = getenv("PATH");
+  const char *const path_env = getenv("PATH");
 
   if (path_env == NULL) {
     return tstr_null();

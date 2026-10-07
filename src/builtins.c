@@ -417,15 +417,13 @@ static void pwd_free_arguments(shell_dynamic_args args) { free(args); }
 static ExitCode pwd_invoke(shell_dynamic_args args, const ShellHandle shell) {
   UNUSED(args);
 
-  tstr cwd = shell.function.get_current_working_directory(shell.context);
+  tstr_view cwd = shell.function.get_current_working_directory(shell.context);
 
-  if (tstr_is_null(&cwd)) {
+  if (cwd.len == 0) {
     return ExitCodeGenericError;
   }
 
-  int res = fprintf(stdout, TSTR_FMT "\n", TSTR_FMT_ARGS(cwd));
-
-  tstr_free(&cwd);
+  int res = fprintf(stdout, TSTR_FMT "\n", TSV_FMT_ARGS(cwd));
 
   if (res < 0) {
     return ExitCodeGenericError;
@@ -487,31 +485,37 @@ static void cd_free_arguments(shell_dynamic_args args) { free(args); }
 static ExitCode cd_invoke(shell_dynamic_args args, const ShellHandle shell) {
   CdData *cd_data = args;
 
-  tstr normalized_path = path_normalize(cd_data->path);
+  tstr_view cwd = shell.function.get_current_working_directory(shell.context);
 
-  if (tstr_is_null(&normalized_path)) {
+  if (cwd.len == 0) {
     return ExitCodeGenericError;
   }
 
-  if (!path_is_absolute(tstr_as_view(&normalized_path))) {
+  tstr resolved_path = path_resolve_to_absolute(cwd, cd_data->path);
 
-    tstr cwd = shell.function.get_current_working_directory(shell.context);
-
-    if (tstr_is_null(&cwd)) {
-      tstr_free(&normalized_path);
-      return ExitCodeGenericError;
-    }
-
-    bool ok = path_make_absolute(&cwd, &normalized_path);
-
-    if (!ok) {
-      tstr_free(&normalized_path);
-      return ExitCodeGenericError;
-    }
-
+  if (tstr_is_null(&resolved_path)) {
+    return ExitCodeGenericError;
   }
 
-  if (!path_exists_and_is_dir(tstr_as_view(&normalized_path))) {
+  if (!path_is_absolute(tstr_as_view(&resolved_path))) {
+    tstr_free(&resolved_path);
+    return ExitCodeGenericError;
+  }
+
+  tstr path = path_normalize(tstr_as_view(&resolved_path));
+
+  tstr_free(&resolved_path);
+
+  if (tstr_is_null(&path)) {
+    return ExitCodeGenericError;
+  }
+
+  if (!path_is_absolute(tstr_as_view(&path))) {
+    tstr_free(&path);
+    return ExitCodeGenericError;
+  }
+
+  if (!path_exists_and_is_dir(tstr_as_view(&path))) {
     int res = fprintf(stdout, "cd: " TSTR_FMT ": No such file or directory\n",
                       TSV_FMT_ARGS(cd_data->path));
     if (res < 0) {
@@ -520,10 +524,9 @@ static ExitCode cd_invoke(shell_dynamic_args args, const ShellHandle shell) {
     return ExitCodeGenericError;
   }
 
-  bool ok = shell.function.set_current_working_directory(shell.context,
-                                                         &normalized_path);
+  bool ok = shell.function.set_current_working_directory(shell.context, &path);
 
-  tstr_free(&normalized_path);
+  tstr_free(&path);
 
   if (!ok) {
     return ExitCodeGenericError;
@@ -591,6 +594,5 @@ BuiltinCommand g_builtin_functions[] = {
     // TODO: help
 };
 
-static_assert(sizeof(g_builtin_functions) / sizeof(g_builtin_functions[0]) ==
-                  BUILTIN_FUNCTION_COUNT,
+static_assert(ARRAY_SIZE(g_builtin_functions) == BUILTIN_FUNCTION_COUNT,
               "BUILTIN_FUNCTION_COUNT is incorrect");

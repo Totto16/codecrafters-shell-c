@@ -18,3 +18,5 @@ NODISCARD tstr path_get_cwd(void);
 NODISCARD tstr path_normalize(tstr_view path);
 
 NODISCARD bool path_is_normalized(tstr_view path);
+
+NODISCARD tstr path_resolve_to_absolute(tstr_view cwd, tstr_view path);

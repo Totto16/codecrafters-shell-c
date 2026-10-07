@@ -92,11 +92,12 @@ static void shell_virtual_fn_exit(shell_context ctx, const ExitData *data) {
   }
 }
 
-static tstr shell_virtual_fn_get_current_working_directory(shell_context ctx) {
+static tstr_view
+shell_virtual_fn_get_current_working_directory(shell_context ctx) {
 
   ShellState *state = ctx;
 
-  return tstr_dup(&(state->cwd));
+  return tstr_as_view(&(state->cwd));
 }
 
 static bool
@@ -105,11 +106,11 @@ shell_virtual_fn_set_current_working_directory(shell_context ctx,
 
   ShellState *state = ctx;
 
-  if (!path_is_normalized(tstr_as_view(normalized_cwd))) {
+  if (!path_is_absolute(tstr_as_view(normalized_cwd))) {
     return false;
   }
 
-  if (!path_is_absolute(tstr_as_view(normalized_cwd))) {
+  if (!path_is_normalized(tstr_as_view(normalized_cwd))) {
     return false;
   }
 
