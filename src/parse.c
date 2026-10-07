@@ -48,6 +48,7 @@ typedef enum : uint8_t {
   ParseStateTypeNormal = 0,
   ParseStateTypeSingleQuote,
   ParseStateTypeDoubleQuote,
+  ParseStateTypeEscape,
 } ParseStateType;
 
 typedef struct {
@@ -154,7 +155,7 @@ static ParsedProgramResult shell_parse_input(tstr_view input) {
           ADD_TO_ACCUMULATOR(orig, add_raw_span);
         }
         start = i + 1;
-      } else if (character == '\'' || character == '"') {
+      } else if (character == '"') {
         state = (ParseState){
             .type = ParseStateTypeDoubleQuote,
             .data = {.double_quote = {.type = ParseStateDoubleQuoteTypeNormal,
@@ -164,6 +165,22 @@ static ParsedProgramResult shell_parse_input(tstr_view input) {
           // no string before it, just advance start
         } else {
           // if we have some string before " we need to set the accumulator
+          // to it the thing before this is a normal string without quotes,
+          // otherwise it would already be consumed
+          const tstr_view orig =
+              (tstr_view){.data = input.data + start, .len = i - start};
+          const size_t add_raw_span = (i - start) + 1;
+
+          ADD_TO_ACCUMULATOR(orig, add_raw_span);
+        }
+        start = i + 1;
+      } else if (character == '\\') {
+        state = (ParseState){.type = ParseStateTypeEscape, .data = {}};
+
+        if (start == i) {
+          // no string before it, just advance start
+        } else {
+          // if we have some string before \ we need to set the accumulator
           // to it the thing before this is a normal string without quotes,
           // otherwise it would already be consumed
           const tstr_view orig =
@@ -213,6 +230,20 @@ static ParsedProgramResult shell_parse_input(tstr_view input) {
       }
       break;
     }
+    case ParseStateTypeEscape: {
+
+      const tstr_view orig = (tstr_view){.data = input.data + i, .len = 1};
+
+      const size_t add_raw_span = 1;
+
+      ADD_TO_ACCUMULATOR(orig, add_raw_span);
+
+      state = (ParseState){.type = ParseStateTypeNormal, .data = {}};
+
+      start = i + 1;
+
+      break;
+    }
     default: {
       return (ParsedProgramResult){
           .is_ok = false,
@@ -230,6 +261,10 @@ static ParsedProgramResult shell_parse_input(tstr_view input) {
       return (ParsedProgramResult){
           .is_ok = false,
           .data = {.error = TSTR_LIT("Unterminated double quote")}};
+    } else if (state.type == ParseStateTypeEscape) {
+      return (ParsedProgramResult){
+          .is_ok = false,
+          .data = {.error = TSTR_LIT("Unterminated escape sequence")}};
     } else {
       return (ParsedProgramResult){
           .is_ok = false,
