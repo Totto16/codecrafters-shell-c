@@ -39,8 +39,8 @@ typedef struct {
 #define ADD_DIR_ARGUMENT(path_view)                                            \
   do {                                                                         \
                                                                                \
-    if (path_is_absolute(path_view)) {                                         \
-      tstr_view normalized = path_normalize_dir_ending(path_view);             \
+    if (path_is_absolute((path_view))) {                                       \
+      tstr_view normalized = path_normalize_dir_ending((path_view));           \
                                                                                \
       if (path_exists_and_is_dir(normalized)) {                                \
         PathDirectory argument = {.path = normalized};                         \

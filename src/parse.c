@@ -17,10 +17,10 @@ typedef struct {
 
 #define ADD_SHELL_ARGUMENT(argument)                                           \
   do {                                                                         \
-    if (tstr_is_null(&program.program.parsed)) {                                \
-      program.program = argument;                                              \
+    if (tstr_is_null(&program.program.parsed)) {                               \
+      program.program = (argument);                                            \
     } else {                                                                   \
-      TvecResult res = TVEC_PUSH(ShellArgument, &(program.args), argument);    \
+      TvecResult res = TVEC_PUSH(ShellArgument, &(program.args), (argument));  \
                                                                                \
       if (res !=                                                               \
           TvecResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/    \
@@ -30,6 +30,35 @@ typedef struct {
       }                                                                        \
     }                                                                          \
   } while (false)
+
+#define ADD_TO_ACCUMULATOR(acc, argument)                                      \
+  do {                                                                         \
+    TStrResult res = tstr_cat_len(&(acc), (argument).data, (argument).len);    \
+                                                                               \
+    if (res != TStrResultOk) {                                                 \
+      return (ParsedProgramResult){                                            \
+          .is_ok = false,                                                      \
+          .data = {.error = TSTR_LIT("OOM error in internal parsing")}};       \
+    }                                                                          \
+  } while (false)
+
+typedef enum : uint8_t {
+  ParseStateTypeNormal = 0,
+  ParseStateTypeSingleQuote,
+  ParseStateTypeDoubleQuote,
+} ParseStateType;
+
+typedef struct {
+  tstr acc;
+  size_t acc_start;
+} ParseStateSingleQuote;
+
+typedef struct {
+  ParseStateType type;
+  union {
+    ParseStateSingleQuote single;
+  } data;
+} ParseState;
 
 static ParsedProgramResult shell_parse_input(tstr_view input) {
 
@@ -41,29 +70,109 @@ static ParsedProgramResult shell_parse_input(tstr_view input) {
   };
 
   size_t start = 0;
+  ParseState state = {.type = ParseStateTypeNormal, .data = {}};
 
   for (size_t i = 0; i < input.len; ++i) {
 
     const char character = input.data[i];
 
-    if (isspace(character) != 0) {
-      if (i == 0) {
-        return (ParsedProgramResult){
-            .is_ok = false,
-            .data = {.error = TSTR_LIT("Leading whitespace not supported")}};
+    switch (state.type) {
+    case ParseStateTypeNormal: {
+      if (isspace(character) != 0) {
+        if (start == i) {
+          // the next string starts with a whitespace, so skip this whitespace
+          // as end delimiter
+        } else {
+
+          tstr_view orig =
+              (tstr_view){.data = input.data + start, .len = i - start};
+          ShellArgument argument = {.original = orig,
+                                    .parsed = tstr_from_view(orig)};
+
+          ADD_SHELL_ARGUMENT(argument);
+        }
+
+        start = i + 1;
+      } else if (character == '\'') {
+        state = (ParseState){
+            .type = ParseStateTypeSingleQuote,
+            .data = {.single = {.acc = tstr_from(""), .acc_start = start}}};
+
+        if (start == i) {
+          // no string before it, just advance start
+        } else {
+          // if we have some string before ' we need to set the accumulator to
+          // it
+          // the thing before this is a normal string without quotes, otherwise
+          // it would already be consumed
+          tstr_view orig =
+              (tstr_view){.data = input.data + start, .len = i - start};
+          ADD_TO_ACCUMULATOR(state.data.single.acc, orig);
+        }
+        start = i + 1;
+
+      } else if (character == '"') {
+        state = (ParseState){.type = ParseStateTypeDoubleQuote, .data = {}};
+
+        // if we have some string before "" we need to set the accumulator to it
       }
 
-      if (start != i) {
+      break;
+    }
+    case ParseStateTypeSingleQuote: {
+      if (character == '\'') {
 
         tstr_view orig =
             (tstr_view){.data = input.data + start, .len = i - start};
-        ShellArgument argument = {.original = orig,
-                                  .parsed = tstr_from_view(orig)};
+
+        ADD_TO_ACCUMULATOR(state.data.single.acc, orig);
+
+        tstr_view whole_orig =
+            (tstr_view){.data = input.data + state.data.single.acc_start,
+                        .len = i - state.data.single.acc_start + 1};
+
+        ShellArgument argument = {.original = whole_orig,
+                                  .parsed = state.data.single.acc};
 
         ADD_SHELL_ARGUMENT(argument);
-      }
 
-      start = i + 1;
+        // we move out of the acc, so just setting it to null for safety
+        state.data.single.acc = tstr_null();
+
+        state = (ParseState){.type = ParseStateTypeNormal, .data = {}};
+
+        start = i + 1;
+      } else {
+      }
+      break;
+    }
+    case ParseStateTypeDoubleQuote: {
+      return (ParsedProgramResult){
+          .is_ok = false,
+          .data = {.error = TSTR_LIT("[INTERNAL] TODO: Not Yet Implemented")}};
+      break;
+    }
+    default: {
+      return (ParsedProgramResult){
+          .is_ok = false,
+          .data = {.error = TSTR_LIT("[INTERNAL] wrong parse state")}};
+    }
+    }
+  }
+
+  if (state.type != ParseStateTypeNormal) {
+    if (state.type == ParseStateTypeSingleQuote) {
+      return (ParsedProgramResult){
+          .is_ok = false,
+          .data = {.error = TSTR_LIT("Unterminated single quote")}};
+    } else if (state.type == ParseStateTypeDoubleQuote) {
+      return (ParsedProgramResult){
+          .is_ok = false,
+          .data = {.error = TSTR_LIT("Unterminated double quote")}};
+    } else {
+      return (ParsedProgramResult){
+          .is_ok = false,
+          .data = {.error = TSTR_LIT("[INTERNAL] wrong parse state")}};
     }
   }
 
@@ -118,6 +227,21 @@ ShellParseDataResult shell_parse_data(tstr_view input) {
   if (tstr_len(&program.program.parsed) == 0) {
     return (ShellParseDataResult){.type = ShellParseDataResultEmpty,
                                   .data = {}};
+  }
+
+  // TODO: hide behind some sort of set +d or similar debug option
+  for (size_t i = 0; i < TVEC_LENGTH(ShellArgument, program.args); ++i) {
+
+    const ShellArgument *const arg =
+        TVEC_GET_AT(ShellArgument, &(program.args), i);
+
+    int res =
+        fprintf(stderr, "index: %zu\nvalue: " TSTR_FMT "\nraw: " TSTR_FMT "\n", i,
+                TSTR_FMT_ARGS(arg->parsed), TSV_FMT_ARGS(arg->original));
+    if (res < 0) {
+      return (ShellParseDataResult){.type = ShellParseDataResultTypeError,
+                                    .data = {.error = TSTR_LIT("IO Error")}};
+    }
   }
 
   const tstr *const prog_name = &program.program.parsed;
