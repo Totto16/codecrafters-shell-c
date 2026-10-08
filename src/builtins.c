@@ -4,6 +4,8 @@
 #include "./utils.h"
 
 #include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #define RETURN_ARGUMENT(Type, value)                                           \
   do {                                                                         \
@@ -710,9 +712,9 @@ static ShellIO get_shell_io(const ShellRedirectSettings *const settings) {
       .stderr = {.type = ShellIOContextStateTypeNormal, .data = {}},
   };
 
-  if (!tstr_is_null(&(settings->stdout.location))) {
+  if (shell_redirect_is_set(&(settings->stdout))) {
 
-    int fd = shell_redirect_open_file(&settings->stdout.location);
+    int fd = shell_redirect_open_file(&(settings->stdout));
 
     if (fd < 0) {
       free_shell_io_context(context);
@@ -724,9 +726,9 @@ static ShellIO get_shell_io(const ShellRedirectSettings *const settings) {
                               .data = {.redirect = {.fd = fd}}};
   }
 
-  if (!tstr_is_null(&(settings->stderr.location))) {
+  if (shell_redirect_is_set(&(settings->stderr))) {
 
-    int fd = shell_redirect_open_file(&settings->stderr.location);
+    int fd = shell_redirect_open_file(&(settings->stderr));
 
     if (fd < 0) {
       free_shell_io_context(context);
@@ -760,4 +762,31 @@ ExitCode invoke_shell_builtin(ShellCommandBuiltin builtin, ShellHandle shell,
   free_shell_io(io);
 
   return command_exit_code;
+}
+
+NODISCARD bool shell_redirect_is_set(const ShellRedirectLocation *location) {
+  return !tstr_is_null(&(location->location));
+}
+
+NODISCARD int shell_redirect_open_file(const ShellRedirectLocation *location) {
+
+  // TODO: maybe warn for trunaction, but bash doesn't do that too
+
+  int flags = O_WRONLY | O_CREAT;
+
+  if (location->append) {
+    flags |= O_APPEND;
+  } else {
+    flags |= O_TRUNC;
+  }
+
+  int fd = open(tstr_cstr(&(location->location)), flags, 0644);
+
+  return fd;
+}
+
+void shell_redirect_close_file(int fd) {
+  // TODO: maybe report errors here
+  int res = close(fd);
+  UNUSED(res);
 }

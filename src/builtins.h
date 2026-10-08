@@ -27,12 +27,19 @@ typedef struct {
 
 typedef struct {
   tstr location;
+  bool append;
 } ShellRedirectLocation;
 
 typedef struct {
   ShellRedirectLocation stdout;
   ShellRedirectLocation stderr;
 } ShellRedirectSettings;
+
+NODISCARD bool shell_redirect_is_set(const ShellRedirectLocation *location);
+
+NODISCARD int shell_redirect_open_file(const ShellRedirectLocation *location);
+
+void shell_redirect_close_file(int fd);
 
 ExitCode invoke_shell_builtin(ShellCommandBuiltin builtin, ShellHandle shell,
                               const ShellRedirectSettings *settings);

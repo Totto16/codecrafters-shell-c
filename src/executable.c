@@ -169,8 +169,8 @@ ExitCode invoke_executable(const tstr *path, const tstr *const invoke_name,
   if (pid == 0) {
     // Child process: execute the program
 
-    if (!tstr_is_null(&(settings->stdout.location))) {
-      int fd = shell_redirect_open_file(&settings->stdout.location);
+    if (shell_redirect_is_set(&(settings->stdout))) {
+      int fd = shell_redirect_open_file(&settings->stdout);
 
       if (fd < 0) {
         return ExitCodeImplementationError;
@@ -186,7 +186,7 @@ ExitCode invoke_executable(const tstr *path, const tstr *const invoke_name,
     }
 
     if (!tstr_is_null(&(settings->stderr.location))) {
-      int fd = shell_redirect_open_file(&settings->stderr.location);
+      int fd = shell_redirect_open_file(&settings->stderr);
 
       if (fd < 0) {
         return ExitCodeImplementationError;

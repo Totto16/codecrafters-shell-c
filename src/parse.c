@@ -88,8 +88,8 @@ static ParsedProgramResult shell_parse_input(tstr_view input,
   ParsedProgram program = {
       .program = {.parsed = tstr_null(), .original = TSTR_TSV("")},
       .args = TVEC_EMPTY(ShellArgument),
-      .settings = {.stdout = {.location = tstr_null()},
-                   .stderr = {.location = tstr_null()}}};
+      .settings = {.stdout = {.location = tstr_null(), .append = false},
+                   .stderr = {.location = tstr_null(), .append = false}}};
 
   size_t start = 0;
   ParseState state = {.type = ParseStateTypeNormal, .data = {}};
@@ -363,10 +363,21 @@ static ParsedProgramResult shell_parse_input(tstr_view input,
     // check for supported redirections, use the original string, as quoted
     // strings are not valid
     ShellRedirectLocation *location = NULL;
+    bool append = false;
+
     if (tstr_view_eq(arg->original, ">") || tstr_view_eq(arg->original, "1>")) {
       location = &program.settings.stdout;
+      append = false;
     } else if (tstr_view_eq(arg->original, "2>")) {
       location = &program.settings.stderr;
+      append = false;
+    } else if (tstr_view_eq(arg->original, ">>") ||
+               tstr_view_eq(arg->original, "1>>")) {
+      location = &program.settings.stdout;
+      append = true;
+    } else if (tstr_view_eq(arg->original, "2>>")) {
+      location = &program.settings.stderr;
+      append = true;
     }
 
     if (location != NULL) {
@@ -424,7 +435,7 @@ static ParsedProgramResult shell_parse_input(tstr_view input,
           RETURN_IMPL_ERROR("normalized path is not absolute");
         }
 
-        location->location = path;
+        *location = (ShellRedirectLocation){.location = path, .append = append};
       }
 
       // NOTE: remove those two value from the array, we are iterating over it,

@@ -1,7 +1,6 @@
 #include "./file.h"
 #include "./utils.h"
 
-#include <fcntl.h>
 #include <sys/stat.h>
 #include <tvec/tvec.h>
 #include <unistd.h>
@@ -313,19 +312,4 @@ NODISCARD tstr path_resolve_to_absolute(tstr_view cwd, tstr_view path) {
 
     return path_validate_absolute(final_path);
   }
-}
-
-NODISCARD int shell_redirect_open_file(const tstr *const path) {
-
-  // TODO: maybe warn for trunaction, but bash doesn't do that too
-
-  int fd = open(tstr_cstr(path), O_WRONLY | O_CREAT | O_TRUNC, 0644);
-
-  return fd;
-}
-
-void shell_redirect_close_file(int fd) {
-  // TODO: maybe report errors here
-  int res = close(fd);
-  UNUSED(res);
 }
