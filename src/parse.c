@@ -470,13 +470,7 @@ static void free_shell_redirect_settings(ShellRedirectSettings *settings) {
   free_shell_redirect_location(&(settings->stderr));
 }
 
-static void free_parsed_program(ParsedProgram *program) {
-  free_shell_arguments(&(program->args));
-  free_shell_argument(&(program->program));
-  free_shell_redirect_settings(&(program->settings));
-}
-
-void free_shell_arguments(ShellArguments *args) {
+static void free_shell_arguments(ShellArguments *args) {
 
   for (size_t i = 0; i < TVEC_LENGTH(ShellArgument, *args); ++i) {
 
@@ -486,6 +480,17 @@ void free_shell_arguments(ShellArguments *args) {
   }
 
   TVEC_FREE(ShellArgument, args);
+}
+
+static void free_parsed_program(ParsedProgram *program) {
+  free_shell_arguments(&(program->args));
+  free_shell_argument(&(program->program));
+  free_shell_redirect_settings(&(program->settings));
+}
+
+void free_shell_command(ShellCommand *command) {
+  free_shell_arguments(&(command->args));
+  free_shell_redirect_settings(&(command->settings));
 }
 
 void free_shell_command_not_found(ShellCommandNotFound *found) {
@@ -599,6 +604,7 @@ ShellParseDataResult shell_parse_data(tstr_view input,
   }
 
   free_shell_arguments(&program.args);
+  free_shell_redirect_settings(&program.settings);
 
   return (ShellParseDataResult){
       .type = ShellParseDataResultTypeCommandNotFound,

@@ -47,6 +47,6 @@ typedef struct {
 NODISCARD ShellParseDataResult shell_parse_data(tstr_view input,
                                                 const ShellHandle shell);
 
-void free_shell_arguments(ShellArguments *args);
+void free_shell_command(ShellCommand *command);
 
 void free_shell_command_not_found(ShellCommandNotFound *found);

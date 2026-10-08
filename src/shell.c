@@ -279,7 +279,7 @@ void shell_repl_step(ShellState *state) {
     }
     }
 
-    free_shell_arguments(&parse.data.command.args);
+    free_shell_command(&parse.data.command);
 
     break;
   }
