@@ -17,7 +17,7 @@ target_compile_options(shell PRIVATE
 
 set(USE_EDIT_LIBRARY "readline"
     CACHE STRING "Line editing backend")
-set_property(CACHE USE_EDIT_LIBRARY PROPERTY STRINGS readline libedit)
+set_property(CACHE USE_EDIT_LIBRARY PROPERTY STRINGS readline libedit custom)
 
 if(USE_EDIT_LIBRARY STREQUAL "libedit")
     find_package(PkgConfig REQUIRED)
@@ -31,6 +31,8 @@ elseif(USE_EDIT_LIBRARY STREQUAL "readline")
     pkg_check_modules(readline REQUIRED IMPORTED_TARGET readline)
     target_link_libraries(shell PRIVATE PkgConfig::readline)
     target_compile_definitions(shell PRIVATE SHELL_USE_EDIT_LIBRARY=1)
+elseif(USE_EDIT_LIBRARY STREQUAL "custom")
+    target_compile_definitions(shell PRIVATE SHELL_USE_EDIT_LIBRARY=2)
 else()
     message(FATAL_ERROR
         "Invalid USE_EDIT_LIBRARY: ${USE_EDIT_LIBRARY}")

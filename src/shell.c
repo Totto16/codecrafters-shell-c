@@ -79,7 +79,8 @@ static void free_shell_command_executable(ShellCommandExecutable *executable) {
   tstr_free(&(executable->path));
 }
 
-static void shell_virtual_fn_exit(shell_virtual_context ctx, const ExitData *data) {
+static void shell_virtual_fn_exit(shell_virtual_context ctx,
+                                  const ExitData *data) {
 
   ShellState *state = ctx;
 
@@ -148,7 +149,7 @@ static bool shell_process_input_state(ShellState *state) {
   shell_cleanup_old_prompt(state);
   return true;
 }
-#else
+#elif SHELL_USE_EDIT_LIBRARY == 1
 static bool shell_set_prompt_to_input_state(ShellState *state) {
   tstr prompt;
   if (state->interactive) {
@@ -172,6 +173,37 @@ static bool shell_set_prompt_to_input_state(ShellState *state) {
 static bool shell_process_input_state(ShellState *state) {
 
   return shell_set_prompt_to_input_state(state);
+}
+#else
+static bool shell_print_prompt(ShellState *state) {
+  tstr prompt;
+  if (state->interactive) {
+    prompt = shell_get_prompt(state);
+
+    if (tstr_is_null(&prompt)) {
+      RETURNS_VOID shell_exit(state, ExitCodeGenericError);
+
+      RETURNS_VOID shell_print_error("[INTERNAL] prompt print error");
+      return false;
+    }
+  } else {
+    prompt = tstr_null();
+  }
+
+  int res = fprintf(stdout, TSTR_FMT, TSTR_FMT_ARGS(prompt));
+
+  tstr_free(&prompt);
+
+  if (res < 0) {
+    return false;
+  }
+
+  return true;
+}
+
+static bool shell_process_input_state(ShellState *state) {
+
+  return shell_print_prompt(state);
 }
 #endif
 
@@ -219,7 +251,8 @@ void shell_repl_step(ShellState *state) {
     case ShellCommandTypeBuiltin: {
       const ShellCommandBuiltin builtin = command.data.builtin;
 
-      ExitCode command_exit_code = invoke_shell_builtin(builtin, shell_handle,&command.settings);
+      ExitCode command_exit_code =
+          invoke_shell_builtin(builtin, shell_handle, &command.settings);
       set_command_exit_code(state, command_exit_code);
 
       builtin.command.validator.free(builtin.args);
@@ -229,8 +262,9 @@ void shell_repl_step(ShellState *state) {
     case ShellCommandTypeExecutable: {
       ShellCommandExecutable executable = command.data.executable;
 
-      ExitCode command_exit_code = invoke_executable(
-          &executable.path, &executable.invoke_name, &command.args, &command.settings);
+      ExitCode command_exit_code =
+          invoke_executable(&executable.path, &executable.invoke_name,
+                            &command.args, &command.settings);
       set_command_exit_code(state, command_exit_code);
 
       free_shell_command_executable(&executable);
@@ -288,6 +322,12 @@ void shell_repl_step(ShellState *state) {
   }
   }
 
+#if SHELL_USE_EDIT_LIBRARY == 2
+  if (data.end) {
+    RETURNS_VOID shell_exit(state, state->command_state.exit_code);
+  }
+#endif
+
   RETURNS_VOID free_shell_input_ok_result(data);
 }
 
@@ -320,7 +360,7 @@ static ShellSetupResult shell_setup_repl(const char *const program_name) {
   //  this includes: signal handling, tab completion, history
 
   ShellInputState input_state = {.el = el};
-#else
+#elif SHELL_USE_EDIT_LIBRARY == 1
   UNUSED(program_name);
   int res = rl_initialize();
   if (res != 0) {
@@ -333,6 +373,9 @@ static ShellSetupResult shell_setup_repl(const char *const program_name) {
   //  this includes: signal handling, tab completion, history
 
   ShellInputState input_state = {.prompt = tstr_null()};
+#else
+  UNUSED(program_name);
+  ShellInputState input_state = {};
 #endif
 
   bool interactive = isatty(STDIN_FILENO) == 1;
@@ -437,9 +480,12 @@ NODISCARD static bool shell_setup_prompt(ShellState *state) {
   // TODO
   // el_set(EL_EDITOR, "emacs" "vi")
   return true;
-#else
+#elif SHELL_USE_EDIT_LIBRARY == 1
 
   return shell_set_prompt_to_input_state(state);
+#else
+  UNUSED(state);
+  return true;
 #endif
 }
 
