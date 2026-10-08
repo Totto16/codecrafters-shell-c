@@ -449,9 +449,20 @@ static void free_shell_argument(ShellArgument *arg) {
   tstr_free(&(arg->parsed));
 }
 
+static void free_shell_redirect_location(ShellRedirectLocation *location) {
+
+  tstr_free(&(location->location));
+}
+
+static void free_shell_redirect_settings(ShellRedirectSettings *settings) {
+  free_shell_redirect_location(&(settings->stdout));
+  free_shell_redirect_location(&(settings->stderr));
+}
+
 static void free_parsed_program(ParsedProgram *program) {
   free_shell_arguments(&(program->args));
   free_shell_argument(&(program->program));
+  free_shell_redirect_settings(&(program->settings));
 }
 
 void free_shell_arguments(ShellArguments *args) {

@@ -154,7 +154,8 @@ static void free_execv_args(char **const args) {
 }
 
 ExitCode invoke_executable(const tstr *path, const tstr *const invoke_name,
-                           const ShellArguments *arguments) {
+                           const ShellArguments *arguments,
+                           const ShellRedirectSettings *settings) {
   // NOTE: this is synchronous, so no need to lock resources (e.g. stdout,
   // stderr)
 
@@ -167,6 +168,38 @@ ExitCode invoke_executable(const tstr *path, const tstr *const invoke_name,
 
   if (pid == 0) {
     // Child process: execute the program
+
+    if (!tstr_is_null(&(settings->stdout.location))) {
+      int fd = shell_redirect_open_file(&settings->stdout.location);
+
+      if (fd < 0) {
+        return ExitCodeImplementationError;
+      }
+
+      int res = dup2(fd, STDOUT_FILENO);
+
+      if (res < 0) {
+        return ExitCodeImplementationError;
+      }
+
+      shell_redirect_close_file(fd);
+    }
+
+    if (!tstr_is_null(&(settings->stderr.location))) {
+      int fd = shell_redirect_open_file(&settings->stderr.location);
+
+      if (fd < 0) {
+        return ExitCodeImplementationError;
+      }
+
+      int res = dup2(fd, STDERR_FILENO);
+
+      if (res < 0) {
+        return ExitCodeImplementationError;
+      }
+
+      shell_redirect_close_file(fd);
+    }
 
     const size_t arguments_length = TVEC_LENGTH(ShellArgument, *arguments);
 

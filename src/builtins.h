@@ -20,4 +20,19 @@ typedef struct {
 
 extern BuiltinCommand g_builtin_functions[];
 
-// special function pointer
+typedef struct {
+  BuiltinCommand command;
+  shell_dynamic_args args;
+} ShellCommandBuiltin;
+
+typedef struct {
+  tstr location;
+} ShellRedirectLocation;
+
+typedef struct {
+  ShellRedirectLocation stdout;
+  ShellRedirectLocation stderr;
+} ShellRedirectSettings;
+
+ExitCode invoke_shell_builtin(ShellCommandBuiltin builtin, ShellHandle shell,
+                              const ShellRedirectSettings *settings);

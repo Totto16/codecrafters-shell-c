@@ -3,6 +3,8 @@
 #include "./file.h"
 #include "./utils.h"
 
+#include <errno.h>
+
 #define RETURN_ARGUMENT(Type, value)                                           \
   do {                                                                         \
     Type *data = malloc(sizeof(Type));                                         \
@@ -50,8 +52,9 @@ exit_parse_arguments(const ShellArguments *args) {
 
 static void exit_free_arguments(shell_dynamic_args args) { free(args); }
 
-static ExitCode exit_invoke(shell_dynamic_args args, const ShellHandle shell) {
-
+static ExitCode exit_invoke(shell_dynamic_args args, const ShellHandle shell,
+                            const ShellIO io) {
+  UNUSED(io);
   const ExitData *const exit_data = args;
 
   shell.function.exit(shell.context, exit_data);
@@ -161,9 +164,11 @@ static void echo_free_arguments(shell_dynamic_args args) {
   free(args);
 }
 
+#define SHELL_FPINTF(...) io.function.fprintf(io.context, __VA_ARGS__)
+
 #define RETURN_IO_ERROR(name)                                                  \
   do {                                                                         \
-    int res = fprintf(stderr, "%s: IO Error\n", name);                         \
+    int res = SHELL_FPINTF(stderr, "%s: IO Error\n", name);                    \
     if (res < 0) {                                                             \
       /* Note: we already have an error, so no reporting possible here */      \
     }                                                                          \
@@ -172,22 +177,23 @@ static void echo_free_arguments(shell_dynamic_args args) {
 
 #define RETURN_IMPL_ERROR(name, msg)                                           \
   do {                                                                         \
-    int res = fprintf(stderr, "%s: [INTERNAL] Implementation Error: %s\n",     \
-                      name, msg);                                              \
+    int res = SHELL_FPINTF(                                                    \
+        stderr, "%s: [INTERNAL] Implementation Error: %s\n", name, msg);       \
     if (res < 0) {                                                             \
       RETURN_IO_ERROR(name);                                                   \
     }                                                                          \
     return ExitCodeImplementationError;                                        \
   } while (false)
 
-static ExitCode echo_invoke(shell_dynamic_args args, const ShellHandle shell) {
+static ExitCode echo_invoke(shell_dynamic_args args, const ShellHandle shell,
+                            const ShellIO io) {
   UNUSED(shell);
   const EchoData *const echo_data = args;
 
   for (size_t i = 0; i < TVEC_LENGTH(EchoArgument, echo_data->args); ++i) {
 
     if (i != 0) {
-      int res = fprintf(stdout, " ");
+      int res = SHELL_FPINTF(stdout, " ");
       if (res < 0) {
         RETURN_IO_ERROR("echo");
       }
@@ -196,14 +202,14 @@ static ExitCode echo_invoke(shell_dynamic_args args, const ShellHandle shell) {
     const EchoArgument *const arg =
         TVEC_GET_AT(EchoArgument, &(echo_data->args), i);
 
-    int res = fprintf(stdout, TSTR_FMT, TSTR_FMT_ARGS(arg->parsed));
+    int res = SHELL_FPINTF(stdout, TSTR_FMT, TSTR_FMT_ARGS(arg->parsed));
     if (res < 0) {
       RETURN_IO_ERROR("echo");
     }
   }
 
   if (echo_data->newline) {
-    int res = fprintf(stdout, "\n");
+    int res = SHELL_FPINTF(stdout, "\n");
     if (res < 0) {
       RETURN_IO_ERROR("echo");
     }
@@ -320,7 +326,8 @@ static void type_free_arguments(shell_dynamic_args args) {
   free(args);
 }
 
-static ExitCode type_invoke(shell_dynamic_args args, const ShellHandle shell) {
+static ExitCode type_invoke(shell_dynamic_args args, const ShellHandle shell,
+                            const ShellIO io) {
   UNUSED(shell);
   const TypeData *const type_data = args;
 
@@ -335,17 +342,17 @@ static ExitCode type_invoke(shell_dynamic_args args, const ShellHandle shell) {
 
     switch (command_type.type) {
     case CommandTypeTypeBuiltin: {
-      int res = fprintf(stdout, TSTR_FMT " is a shell builtin\n",
-                        TSV_FMT_ARGS(arg->name));
+      int res = SHELL_FPINTF(stdout, TSTR_FMT " is a shell builtin\n",
+                             TSV_FMT_ARGS(arg->name));
       if (res < 0) {
         RETURN_IO_ERROR("type");
       }
       break;
     }
     case CommandTypeTypeExecutable: {
-      int res = fprintf(stdout, TSTR_FMT " is " TSTR_FMT "\n",
-                        TSV_FMT_ARGS(arg->name),
-                        TSTR_FMT_ARGS(command_type.data.executable.path));
+      int res = SHELL_FPINTF(stdout, TSTR_FMT " is " TSTR_FMT "\n",
+                             TSV_FMT_ARGS(arg->name),
+                             TSTR_FMT_ARGS(command_type.data.executable.path));
 
       free_executable_data(&command_type.data.executable);
 
@@ -356,8 +363,8 @@ static ExitCode type_invoke(shell_dynamic_args args, const ShellHandle shell) {
     }
     case CommandTypeTypeNotFound: {
       code = ExitCodeGenericError;
-      int res =
-          fprintf(stdout, TSTR_FMT ": not found\n", TSV_FMT_ARGS(arg->name));
+      int res = SHELL_FPINTF(stdout, TSTR_FMT ": not found\n",
+                             TSV_FMT_ARGS(arg->name));
       if (res < 0) {
         RETURN_IO_ERROR("type");
       }
@@ -433,7 +440,8 @@ pwd_parse_arguments(const ShellArguments *args) {
 
 static void pwd_free_arguments(shell_dynamic_args args) { free(args); }
 
-static ExitCode pwd_invoke(shell_dynamic_args args, const ShellHandle shell) {
+static ExitCode pwd_invoke(shell_dynamic_args args, const ShellHandle shell,
+                           const ShellIO io) {
   UNUSED(args);
 
   tstr_view cwd = shell.function.get_current_working_directory(shell.context);
@@ -442,7 +450,7 @@ static ExitCode pwd_invoke(shell_dynamic_args args, const ShellHandle shell) {
     RETURN_IMPL_ERROR("pwd", "cwd get error");
   }
 
-  int res = fprintf(stdout, TSTR_FMT "\n", TSV_FMT_ARGS(cwd));
+  int res = SHELL_FPINTF(stdout, TSTR_FMT "\n", TSV_FMT_ARGS(cwd));
 
   if (res < 0) {
     RETURN_IO_ERROR("pwd");
@@ -501,7 +509,8 @@ cd_parse_arguments(const ShellArguments *args) {
 
 static void cd_free_arguments(shell_dynamic_args args) { free(args); }
 
-static ExitCode cd_invoke(shell_dynamic_args args, const ShellHandle shell) {
+static ExitCode cd_invoke(shell_dynamic_args args, const ShellHandle shell,
+                          const ShellIO io) {
   CdData *cd_data = args;
 
   tstr_view cwd = shell.function.get_current_working_directory(shell.context);
@@ -535,8 +544,9 @@ static ExitCode cd_invoke(shell_dynamic_args args, const ShellHandle shell) {
   }
 
   if (!path_exists_and_is_dir(tstr_as_view(&path))) {
-    int res = fprintf(stdout, "cd: " TSTR_FMT ": No such file or directory\n",
-                      TSV_FMT_ARGS(cd_data->path));
+    int res =
+        SHELL_FPINTF(stdout, "cd: " TSTR_FMT ": No such file or directory\n",
+                     TSV_FMT_ARGS(cd_data->path));
     if (res < 0) {
       RETURN_IO_ERROR("cd");
     }
@@ -616,3 +626,138 @@ BuiltinCommand g_builtin_functions[] = {
 
 static_assert(ARRAY_SIZE(g_builtin_functions) == BUILTIN_FUNCTION_COUNT,
               "BUILTIN_FUNCTION_COUNT is incorrect");
+
+typedef enum : uint8_t {
+  ShellIOContextStateTypeNormal = 0,
+  ShellIOContextStateTypeRedirect,
+} ShellIOContextStateType;
+
+typedef struct {
+  int fd;
+} ShellIOContextStateRedirect;
+
+typedef struct {
+  ShellIOContextStateType type;
+  union {
+    ShellIOContextStateRedirect redirect;
+  } data;
+} ShellIOContextState;
+
+typedef struct {
+  ShellIOContextState stdout;
+  ShellIOContextState stderr;
+} ShellIOContext;
+
+static int shell_io_fn_fprintf(shell_io_context ctx, FILE *restrict stream,
+                               const char *restrict format, ...) {
+  va_list args;
+  va_start(args, format);
+  int ret;
+
+  ShellIOContext *io_ctx = ctx;
+
+  if (stream == stdout) {
+    if (io_ctx->stdout.type == ShellIOContextStateTypeNormal) {
+      ret = vfprintf(stream, format, args);
+    } else if (io_ctx->stdout.type == ShellIOContextStateTypeRedirect) {
+      ret = vdprintf(io_ctx->stdout.data.redirect.fd, format, args);
+    } else {
+      errno = EBADF;
+      ret = -1;
+    }
+  } else if (stream == stderr) {
+    if (io_ctx->stderr.type == ShellIOContextStateTypeNormal) {
+      ret = vfprintf(stream, format, args);
+    } else if (io_ctx->stderr.type == ShellIOContextStateTypeRedirect) {
+      ret = vdprintf(io_ctx->stderr.data.redirect.fd, format, args);
+    } else {
+      errno = EBADF;
+      ret = -1;
+    }
+  } else {
+
+    errno = ENOSTR;
+    ret = -1;
+  }
+
+  va_end(args);
+  return ret;
+}
+
+static void free_shell_io_context_state(ShellIOContextState state) {
+  if (state.type == ShellIOContextStateTypeRedirect) {
+    shell_redirect_close_file(state.data.redirect.fd);
+  }
+}
+
+static void free_shell_io_context(ShellIOContext *context) {
+
+  free_shell_io_context_state(context->stdout);
+  free_shell_io_context_state(context->stderr);
+  free(context);
+}
+
+static ShellIO get_shell_io(const ShellRedirectSettings *const settings) {
+
+  ShellIOContext *context = malloc(sizeof(ShellIOContext));
+
+  if (context == NULL) {
+    return (ShellIO){.context = NULL, .function = {.fprintf = NULL}};
+  }
+
+  *context = (ShellIOContext){
+      .stdout = {.type = ShellIOContextStateTypeNormal, .data = {}},
+      .stderr = {.type = ShellIOContextStateTypeNormal, .data = {}},
+  };
+
+  if (!tstr_is_null(&(settings->stdout.location))) {
+
+    int fd = shell_redirect_open_file(&settings->stdout.location);
+
+    if (fd < 0) {
+      free_shell_io_context(context);
+      return (ShellIO){.context = NULL, .function = {.fprintf = NULL}};
+    }
+
+    context->stdout =
+        (ShellIOContextState){.type = ShellIOContextStateTypeRedirect,
+                              .data = {.redirect = {.fd = fd}}};
+  }
+
+  if (!tstr_is_null(&(settings->stderr.location))) {
+
+    int fd = shell_redirect_open_file(&settings->stderr.location);
+
+    if (fd < 0) {
+      free_shell_io_context(context);
+      return (ShellIO){.context = NULL, .function = {.fprintf = NULL}};
+    }
+
+    context->stderr =
+        (ShellIOContextState){.type = ShellIOContextStateTypeRedirect,
+                              .data = {.redirect = {.fd = fd}}};
+  }
+
+  ShellIO io = {.context = context,
+                .function = {.fprintf = shell_io_fn_fprintf}};
+
+  return io;
+}
+
+static void free_shell_io(ShellIO io) { free_shell_io_context(io.context); }
+
+ExitCode invoke_shell_builtin(ShellCommandBuiltin builtin, ShellHandle shell,
+                              const ShellRedirectSettings *settings) {
+
+  ShellIO io = get_shell_io(settings);
+
+  if (io.context == NULL) {
+    return ExitCodeImplementationError;
+  }
+
+  ExitCode command_exit_code = builtin.command.invoke(builtin.args, shell, io);
+
+  free_shell_io(io);
+
+  return command_exit_code;
+}

@@ -8,19 +8,22 @@
 // TODO: use TRTTI
 typedef void *shell_dynamic_args;
 
-typedef void *shell_context;
+typedef void *shell_virtual_context;
 
-typedef tstr_view (*shell_fn_get_current_working_directory)(shell_context ctx);
+typedef void *shell_io_context;
+
+typedef tstr_view (*shell_fn_get_current_working_directory)(
+    shell_virtual_context ctx);
 
 typedef bool (*shell_fn_set_current_working_directory)(
-    shell_context ctx, const tstr *normalized_cwd);
+    shell_virtual_context ctx, const tstr *normalized_cwd);
 
 typedef struct {
   bool has_code;
   ExitCode code;
 } ExitData;
 
-typedef void (*shell_fn_exit)(shell_context ctx, const ExitData *data);
+typedef void (*shell_fn_exit)(shell_virtual_context ctx, const ExitData *data);
 
 typedef struct {
   shell_fn_get_current_working_directory get_current_working_directory;
@@ -30,11 +33,23 @@ typedef struct {
 
 typedef struct {
   ShellVirtualFunctions function;
-  shell_context context;
+  shell_virtual_context context;
 } ShellHandle;
 
+typedef int (*io_fprintf)(shell_io_context ctx, FILE *restrict stream,
+                          const char *restrict format, ...);
+
+typedef struct {
+  io_fprintf fprintf;
+} ShellVirtualIOFunctions;
+
+typedef struct {
+  ShellVirtualIOFunctions function;
+  shell_io_context context;
+} ShellIO;
+
 typedef ExitCode (*shell_invoke)(shell_dynamic_args args,
-                                 const ShellHandle shell);
+                                 const ShellHandle shell, const ShellIO io);
 
 typedef struct {
   tstr_view original;

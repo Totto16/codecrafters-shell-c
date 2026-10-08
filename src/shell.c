@@ -79,7 +79,7 @@ static void free_shell_command_executable(ShellCommandExecutable *executable) {
   tstr_free(&(executable->path));
 }
 
-static void shell_virtual_fn_exit(shell_context ctx, const ExitData *data) {
+static void shell_virtual_fn_exit(shell_virtual_context ctx, const ExitData *data) {
 
   ShellState *state = ctx;
 
@@ -92,7 +92,7 @@ static void shell_virtual_fn_exit(shell_context ctx, const ExitData *data) {
 }
 
 static tstr_view
-shell_virtual_fn_get_current_working_directory(shell_context ctx) {
+shell_virtual_fn_get_current_working_directory(shell_virtual_context ctx) {
 
   ShellState *state = ctx;
 
@@ -100,7 +100,7 @@ shell_virtual_fn_get_current_working_directory(shell_context ctx) {
 }
 
 static bool
-shell_virtual_fn_set_current_working_directory(shell_context ctx,
+shell_virtual_fn_set_current_working_directory(shell_virtual_context ctx,
                                                const tstr *normalized_cwd) {
 
   ShellState *state = ctx;
@@ -219,8 +219,7 @@ void shell_repl_step(ShellState *state) {
     case ShellCommandTypeBuiltin: {
       const ShellCommandBuiltin builtin = command.data.builtin;
 
-      ExitCode command_exit_code =
-          builtin.command.invoke(builtin.args, shell_handle);
+      ExitCode command_exit_code = invoke_shell_builtin(builtin, shell_handle,&command.settings);
       set_command_exit_code(state, command_exit_code);
 
       builtin.command.validator.free(builtin.args);
@@ -231,7 +230,7 @@ void shell_repl_step(ShellState *state) {
       ShellCommandExecutable executable = command.data.executable;
 
       ExitCode command_exit_code = invoke_executable(
-          &executable.path, &executable.invoke_name, &command.args);
+          &executable.path, &executable.invoke_name, &command.args, &command.settings);
       set_command_exit_code(state, command_exit_code);
 
       free_shell_command_executable(&executable);

@@ -21,23 +21,9 @@ typedef enum : uint8_t {
 } ShellCommandType;
 
 typedef struct {
-  BuiltinCommand command;
-  shell_dynamic_args args;
-} ShellCommandBuiltin;
-
-typedef struct {
   tstr path;
   tstr invoke_name;
 } ShellCommandExecutable;
-
-typedef struct {
-  tstr location;
-} ShellRedirectLocation;
-
-typedef struct {
-  ShellRedirectLocation stdout;
-  ShellRedirectLocation stderr;
-} ShellRedirectSettings;
 
 typedef struct {
   ShellCommandType type;
