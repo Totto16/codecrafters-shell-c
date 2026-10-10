@@ -624,7 +624,7 @@ static const BuiltinCommand builtin_function_cd = {
 	.help = cd_help,
 };
 
-BuiltinCommand g_builtin_functions[] = {
+const BuiltinCommand g_builtin_functions[] = {
 	builtin_function_exit, builtin_function_echo, builtin_function_type,
 	builtin_function_pwd,  builtin_function_cd,
 	// TODO: add help builtin
@@ -681,7 +681,6 @@ static int shell_io_fn_fprintf(shell_io_context ctx, FILE* restrict stream,
 			ret = -1;
 		}
 	} else {
-
 		errno = ENOSTR;
 		ret = -1;
 	}
@@ -863,12 +862,12 @@ ExitCode invoke_shell_builtin_in_subshell(const ShellCommandBuiltin* builtin, Sh
 }
 
 NODISCARD bool shell_redirect_is_set(const ShellRedirectLocation* location) {
-	return !tstr_is_null(&(location->location));
+	return (!(tstr_is_null(&(location->location))));
 }
 
 NODISCARD int shell_redirect_open_file(const ShellRedirectLocation* location) {
 
-	// TODO: maybe warn for trunaction, but bash doesn't do that too
+	// TODO(Totto): maybe warn for trunaction, but bash doesn't do that too
 
 	int flags = O_WRONLY | O_CREAT;
 
@@ -884,6 +883,6 @@ NODISCARD int shell_redirect_open_file(const ShellRedirectLocation* location) {
 }
 
 void shell_redirect_close_file(int fd) {
-	// TODO: maybe report errors here
+	// TODO(Totto): maybe report errors here
 	IGNORE_RESULT close(fd);
 }

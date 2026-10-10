@@ -5,7 +5,7 @@
 #include <tstr/tstr.h>
 #include <tvec/tvec.h>
 
-// TODO: use TRTTI
+// TODO(Totto): use TRTTI
 typedef void* shell_dynamic_args;
 
 typedef void* shell_virtual_context;

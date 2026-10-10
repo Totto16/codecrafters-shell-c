@@ -18,7 +18,7 @@ typedef struct {
 
 #define BUILTIN_FUNCTION_COUNT 5
 
-extern BuiltinCommand g_builtin_functions[];
+extern const BuiltinCommand g_builtin_functions[];
 
 typedef struct {
 	BuiltinCommand command;

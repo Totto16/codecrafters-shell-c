@@ -487,7 +487,8 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 	ShellPipeSettingsArray pipe_settings = TVEC_EMPTY(ShellPipeSettings);
 	ShellCommandSynchronizationArray synchronization = TVEC_EMPTY(ShellCommandSynchronization);
 
-	TvecResult res = TVEC_RESERVE(ShellPipeSettings, &pipe_settings, pipeline_length);
+	TvecResult res =
+	    TVEC_ALLOCATE_UNINITIALIZED(ShellPipeSettings, &pipe_settings, pipeline_length);
 
 	if(res != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
 		RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
@@ -496,7 +497,8 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 		return;
 	}
 
-	TvecResult res2 = TVEC_RESERVE(ShellCommandSynchronization, &synchronization, pipeline_length);
+	TvecResult res2 =
+	    TVEC_ALLOCATE_UNINITIALIZED(ShellCommandSynchronization, &synchronization, pipeline_length);
 
 	if(res2 != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
 		RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
@@ -953,6 +955,7 @@ ExitCode shell_execute_repl(const size_t argc, char* const* const argv) {
 	ShellSetupResult setup_res = shell_setup_repl(argv[0]);
 
 	if(setup_res.type != ShellSetupResultTypeOk) {
+		ASSERT(setup_res.type == ShellSetupResultTypeError);
 		const char* errors[] = { "[INTERNAL]: ", tstr_cstr(&setup_res.data.error) };
 		RETURNS_VOID shell_print_errors(errors, ARRAY_SIZE(errors));
 
