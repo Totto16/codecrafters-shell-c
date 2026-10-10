@@ -42,28 +42,22 @@ static tstr shell_get_prompt(const ShellState* const state) {
 	return TSTR_LIT("$ ");
 }
 
-static void shell_print_errors(const char** errors, size_t count) {
-	for(size_t i = 0; i < count; ++i) {
+__attribute__((format(printf, 1, 2))) static void shell_print_error(const char* message, ...) {
+	va_list args;
+	va_start(args, message);
 
-		int res = fprintf(stderr, "%s", errors[i]);
-		if(res < 0) {
-			fflush(stderr);
-			// Note: we already have an error, so no reporting possible here
-			return;
-		}
-	}
-
-	int res = fprintf(stderr, "\n");
+	int res = vfprintf(stderr, message, args);
+	va_end(args);
 	if(res < 0) {
+		fflush(stderr);
 		// Note: we already have an error, so no reporting possible here
+		goto report_error_end;
 	}
 
 	fflush(stderr);
-}
 
-static void shell_print_error(const char* error) {
-	const char* errors[] = { error };
-	shell_print_errors(errors, ARRAY_SIZE(errors));
+report_error_end:
+	return;
 }
 
 static void shell_exit(ShellInstanceState* state, ExitCode code) {
@@ -220,7 +214,7 @@ static bool shell_set_prompt_to_input_state(ShellState* state) {
 		if(tstr_is_null(&prompt)) {
 			RETURNS_VOID shell_global_exit(state, ExitCodeGenericError);
 
-			RETURNS_VOID shell_print_error("[INTERNAL] prompt print error");
+			RETURNS_VOID shell_print_error("[INTERNAL] prompt print error\n");
 			return false;
 		}
 	} else {
@@ -245,7 +239,7 @@ static bool shell_print_prompt(ShellState* state) {
 		if(tstr_is_null(&prompt)) {
 			RETURNS_VOID shell_global_exit(state, ExitCodeGenericError);
 
-			RETURNS_VOID shell_print_error("[INTERNAL] prompt print error");
+			RETURNS_VOID shell_print_error("[INTERNAL] prompt print error\n");
 			return false;
 		}
 	} else {
@@ -301,7 +295,7 @@ static void shell_execute_command_synchronous(const ShellCommand* const command,
 		default: {
 			RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
 
-			RETURNS_VOID shell_print_error("[INTERNAL] Invalid command type");
+			RETURNS_VOID shell_print_error("[INTERNAL] Invalid command type\n");
 			break;
 		}
 	}
@@ -477,7 +471,7 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 	if(pipeline_length == 0) {
 		RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
 
-		RETURNS_VOID shell_print_error("[INTERNAL] Invalid empty pipeline");
+		RETURNS_VOID shell_print_error("[INTERNAL] Invalid empty pipeline\n");
 		return;
 	}
 
@@ -504,7 +498,7 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 		if(res != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
 			RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
 
-			RETURNS_VOID shell_print_error("OOM in executing pipeline");
+			RETURNS_VOID shell_print_error("OOM in executing pipeline\n");
 			return;
 		}
 	}
@@ -516,7 +510,7 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 		if(res2 != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
 			RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
 
-			RETURNS_VOID shell_print_error("OOM in executing pipeline");
+			RETURNS_VOID shell_print_error("OOM in executing pipeline\n");
 			return;
 		}
 	}
@@ -530,7 +524,7 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 		if(res3 != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
 			RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
 
-			RETURNS_VOID shell_print_error("OOM in executing pipeline");
+			RETURNS_VOID shell_print_error("OOM in executing pipeline\n");
 			return;
 		}
 	}
@@ -548,7 +542,7 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 			if(res != 0) {
 				RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
 
-				RETURNS_VOID shell_print_error("error in creating pipe");
+				RETURNS_VOID shell_print_error("error in creating pipe\n");
 				goto pipeline_cleanup;
 			}
 		}
@@ -610,8 +604,8 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 		if(sync->type == ShellCommandSynchronizationTypeError) {
 			RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
 
-			const char* errors[] = { "[INTERNAL]: ", tstr_cstr(&(sync->data.error)) };
-			RETURNS_VOID shell_print_errors(errors, ARRAY_SIZE(errors));
+			RETURNS_VOID shell_print_error("[INTERNAL]: " TSTR_FMT "\n",
+			                               TSTR_FMT_ARGS(sync->data.error));
 			tstr_free(&(sync->data.error));
 
 			goto pipeline_cleanup;
@@ -643,7 +637,7 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 				if(res < 0) {
 					RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
 
-					RETURNS_VOID shell_print_error("error in waitpid");
+					RETURNS_VOID shell_print_error("error in waitpid\n");
 					goto pipeline_cleanup;
 				}
 
@@ -658,7 +652,7 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 				} else {
 					RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
 
-					RETURNS_VOID shell_print_error("process not exited");
+					RETURNS_VOID shell_print_error("process not exited\n");
 					goto pipeline_cleanup;
 				}
 
@@ -676,7 +670,7 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 					if(cres != 0) {
 						RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
 
-						RETURNS_VOID shell_print_error("close error");
+						RETURNS_VOID shell_print_error("close error\n");
 						goto pipeline_cleanup;
 					}
 				}
@@ -691,7 +685,7 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 					if(cres != 0) {
 						RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
 
-						RETURNS_VOID shell_print_error("close error");
+						RETURNS_VOID shell_print_error("close error\n");
 						goto pipeline_cleanup;
 					}
 				}
@@ -706,7 +700,7 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 				if(res != 0) {
 					RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
 
-					RETURNS_VOID shell_print_error("process not exited");
+					RETURNS_VOID shell_print_error("process not exited\n");
 					goto pipeline_cleanup;
 				}
 
@@ -716,8 +710,8 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 			case ShellCommandSynchronizationTypeError: {
 				RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
 
-				const char* errors[] = { "[INTERNAL]: ", tstr_cstr(&sync->data.error) };
-				RETURNS_VOID shell_print_errors(errors, ARRAY_SIZE(errors));
+				RETURNS_VOID shell_print_error("[INTERNAL]: " TSTR_FMT "\n",
+				                               TSTR_FMT_ARGS(sync->data.error));
 
 				tstr_free(&sync->data.error);
 				goto pipeline_cleanup;
@@ -725,7 +719,7 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 			default: {
 				RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
 
-				RETURNS_VOID shell_print_error("[INTERNAL] invalid shell command sync type");
+				RETURNS_VOID shell_print_error("[INTERNAL] invalid shell command sync type\n");
 				goto pipeline_cleanup;
 			}
 		}
@@ -747,7 +741,7 @@ void shell_repl_step(ShellState* state) {
 
 		RETURNS_VOID shell_global_exit(state, ExitCodeGenericError);
 
-		RETURNS_VOID shell_print_error("[INTERNAL] prompt print error");
+		RETURNS_VOID shell_print_error("[INTERNAL] prompt print error\n");
 		return;
 	}
 
@@ -767,7 +761,7 @@ void shell_repl_step(ShellState* state) {
 
 		RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
 
-		RETURNS_VOID shell_print_error(tstr_cstr(&error));
+		RETURNS_VOID shell_print_error(TSTR_FMT "\n", TSTR_FMT_ARGS(error));
 		tstr_free(&error);
 		return;
 	}
@@ -802,7 +796,7 @@ void shell_repl_step(ShellState* state) {
 				if(res < 0) {
 					RETURNS_VOID shell_global_exit(state, ExitCodeIOError);
 
-					RETURNS_VOID shell_print_error("[INTERNAL] output error");
+					RETURNS_VOID shell_print_error("[INTERNAL] output error\n");
 
 					goto err_out_of_loop;
 				}
@@ -825,7 +819,7 @@ void shell_repl_step(ShellState* state) {
 			if(res < 0) {
 				RETURNS_VOID shell_global_exit(state, ExitCodeIOError);
 
-				RETURNS_VOID shell_print_error("[INTERNAL] output error");
+				RETURNS_VOID shell_print_error("[INTERNAL] output error\n");
 				break;
 			}
 			set_command_exit_code(state, ExitCodeGenericError);
@@ -834,7 +828,7 @@ void shell_repl_step(ShellState* state) {
 		default: {
 			RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
 
-			RETURNS_VOID shell_print_error("[INTERNAL] Invalid parse result");
+			RETURNS_VOID shell_print_error("[INTERNAL] Invalid parse result\n");
 			break;
 		}
 	}
@@ -979,7 +973,7 @@ NODISCARD static const char* shell_get_prompt_el_cb(EditLine* el) {
 err:
 	RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
 
-	RETURNS_VOID shell_print_error("[INTERNAL] prompt print error");
+	RETURNS_VOID shell_print_error("[INTERNAL] prompt print error\n");
 	return "$ ";
 }
 #endif
@@ -1009,7 +1003,7 @@ NODISCARD static bool shell_setup_prompt(ShellState* state) {
 
 ExitCode shell_execute_repl(const size_t argc, char* const* const argv) {
 	if(argc == 0) {
-		RETURNS_VOID shell_print_error("[INTERNAL] missing argv[0]");
+		RETURNS_VOID shell_print_error("[INTERNAL] missing argv[0]\n");
 		return ExitCodeImplementationError;
 	}
 
@@ -1017,8 +1011,8 @@ ExitCode shell_execute_repl(const size_t argc, char* const* const argv) {
 
 	if(setup_res.type != ShellSetupResultTypeOk) {
 		ASSERT(setup_res.type == ShellSetupResultTypeError);
-		const char* errors[] = { "[INTERNAL]: ", tstr_cstr(&setup_res.data.error) };
-		RETURNS_VOID shell_print_errors(errors, ARRAY_SIZE(errors));
+		RETURNS_VOID shell_print_error("[INTERNAL]: " TSTR_FMT "\n",
+		                               TSTR_FMT_ARGS(setup_res.data.error));
 
 		tstr_free(&setup_res.data.error);
 
@@ -1029,7 +1023,7 @@ ExitCode shell_execute_repl(const size_t argc, char* const* const argv) {
 
 	bool ok = shell_setup_prompt(&state);
 	if(!ok) {
-		RETURNS_VOID shell_print_error("[INTERNAL]: el prompt set error");
+		RETURNS_VOID shell_print_error("[INTERNAL]: el prompt set error\n");
 
 		tstr_free(&setup_res.data.error);
 

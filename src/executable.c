@@ -150,7 +150,8 @@ static void free_execv_args(char** const args) {
 	free(args);
 }
 
-NORETURN static void exe_report_error(ExitCode code, const char* message, ...) {
+__attribute__((format(printf, 2, 3))) NORETURN static void
+exe_report_error(ExitCode code, const char* message, ...) {
 
 	va_list args;
 	va_start(args, message);
@@ -163,6 +164,7 @@ NORETURN static void exe_report_error(ExitCode code, const char* message, ...) {
 		goto report_error_end;
 	}
 
+	fflush(stderr);
 report_error_end:
 	exit(code);
 }
