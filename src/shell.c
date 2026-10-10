@@ -569,12 +569,11 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 
 			*pipe_state = (ShellPipeState){
 				.array = &pipe_info_array,
-				.settings=	{
+				.settings = {
 					.stdin = { .is_pipe = false, .idx = 0 },
 					.stdout = { .is_pipe = false, .idx = 0 },
 				},
-				//TODO
-				.close                         ={.start=0, .end=0},
+				.close = { .start = 0, .end = 0 },
 			};
 
 			if(i > 0) {
@@ -673,7 +672,13 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 					ASSERT(stdin_info != NULL);
 
 					// close the unnecessary READ_END
-					IGNORE_RESULT close(stdin_info->fds[PIPE_READ_END]);
+					int cres = close(stdin_info->fds[PIPE_READ_END]);
+					if(cres != 0) {
+						RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+						RETURNS_VOID shell_print_error("close error");
+						goto pipeline_cleanup;
+					}
 				}
 
 				if(pipe_state->settings.stdout.is_pipe) {
@@ -682,7 +687,13 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 					ASSERT(stdout_info != NULL);
 
 					// close the unnecessary WRITE_END
-					IGNORE_RESULT close(stdout_info->fds[PIPE_WRITE_END]);
+					int cres = close(stdout_info->fds[PIPE_WRITE_END]);
+					if(cres != 0) {
+						RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+						RETURNS_VOID shell_print_error("close error");
+						goto pipeline_cleanup;
+					}
 				}
 
 				break;
@@ -984,7 +995,7 @@ NODISCARD static bool shell_setup_prompt(ShellState* state) {
 	if(!ok) {
 		return false;
 	}
-	// TODO: set editor, fo standard shortcuts
+	// TODO: set editor, for standard shortcuts
 	// el_set(EL_EDITOR, "emacs" "vi")
 	return true;
 #elif SHELL_USE_EDIT_LIBRARY == 1

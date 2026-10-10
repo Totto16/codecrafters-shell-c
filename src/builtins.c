@@ -299,7 +299,7 @@ static ShellParseArgumentsResult type_parse_arguments(const ShellArguments* args
 		.args = TVEC_EMPTY(TypeArgument),
 	};
 
-	// TODO: support options
+	// TODO: support options for type
 
 	for(size_t i = 0; i < TVEC_LENGTH(ShellArgument, *args); ++i) {
 
@@ -501,7 +501,7 @@ static ShellParseArgumentsResult cd_parse_arguments(const ShellArguments* args) 
 	// TODO: support options to cd
 
 	if(args->length == 0) {
-		// TODO: support this
+		// TODO: support cd without args
 		return (ShellParseArgumentsResult){
 			.is_ok = false, .data = { .error = TSTR_LIT("cd: not implemented yet") }
 		};
@@ -841,8 +841,9 @@ static void free_shell_io_in_subshell(ShellIO io, const ShellPipeState* const pi
 
 		RETURNS_VOID drain_stream(stdin_fd);
 
+		int cres = close(stdin_fd);
 		// TODO: maybe report errors here
-		IGNORE_RESULT close(stdin_fd);
+		UNUSED(cres);
 	}
 
 	if(pipe_state->settings.stdout.is_pipe) {
@@ -853,8 +854,9 @@ static void free_shell_io_in_subshell(ShellIO io, const ShellPipeState* const pi
 
 		const int stdout_fd = stdout_info->fds[PIPE_WRITE_END];
 
+		int cres = close(stdout_fd);
 		// TODO: maybe report errors here
-		IGNORE_RESULT close(stdout_fd);
+		UNUSED(cres);
 	}
 }
 
@@ -881,7 +883,8 @@ NODISCARD bool shell_redirect_is_set(const ShellRedirectLocation* location) {
 
 NODISCARD int shell_redirect_open_file(const ShellRedirectLocation* location) {
 
-	// TODO(Totto): maybe warn for trunaction, but bash doesn't do that too
+	// NOTE: when truncating, we just replace the files comment, but we don't emit a warning if the
+	// file already exists, as bash doesn't do that neither
 
 	int flags = O_WRONLY | O_CREAT;
 
@@ -897,6 +900,8 @@ NODISCARD int shell_redirect_open_file(const ShellRedirectLocation* location) {
 }
 
 void shell_redirect_close_file(int fd) {
+
+	int cres = close(fd);
 	// TODO(Totto): maybe report errors here
-	IGNORE_RESULT close(fd);
+	UNUSED(cres);
 }

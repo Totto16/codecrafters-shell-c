@@ -150,6 +150,178 @@ static void free_execv_args(char** const args) {
 	free(args);
 }
 
+static void invoke_executable_child_impl(const tstr* path, const tstr* const invoke_name,
+                                         const ShellArguments* arguments,
+                                         const ShellRedirectSettings* settings,
+                                         const ShellPipeState* pipe_state) {
+
+	bool stdout_redirected = false;
+
+	if(shell_redirect_is_set(&(settings->stdout))) {
+		int fd = shell_redirect_open_file(&settings->stdout);
+
+		if(fd < 0) {
+			// TODO: report error;
+			exit(ExitCodeImplementationError);
+		}
+
+		int res = dup2(fd, STDOUT_FILENO);
+
+		if(res < 0) {
+			// TODO: report error;
+			exit(ExitCodeImplementationError);
+		}
+
+		shell_redirect_close_file(fd);
+		stdout_redirected = true;
+	}
+
+	if(shell_redirect_is_set(&(settings->stderr))) {
+		int fd = shell_redirect_open_file(&settings->stderr);
+
+		if(fd < 0) {
+			// TODO: report error;
+			exit(ExitCodeImplementationError);
+		}
+
+		int res = dup2(fd, STDERR_FILENO);
+
+		if(res < 0) {
+			// TODO: report error;
+			exit(ExitCodeImplementationError);
+		}
+
+		shell_redirect_close_file(fd);
+	}
+
+	// handle pipes
+
+	if(pipe_state->settings.stdin.is_pipe) {
+		const ShellPipeInfo* const stdin_info =
+		    TVEC_GET_AT(ShellPipeInfo, pipe_state->array, pipe_state->settings.stdin.idx);
+		ASSERT(stdin_info != NULL);
+
+		int res = dup2(stdin_info->fds[PIPE_READ_END], STDIN_FILENO);
+
+		if(res < 0) {
+			// TODO: report error;
+			exit(ExitCodeImplementationError);
+		}
+
+		// close the unnecessary WRITE_END
+		int cres = close(stdin_info->fds[PIPE_WRITE_END]);
+		if(cres != 0) {
+			// TODO: report error;
+			exit(ExitCodeImplementationError);
+		}
+	}
+
+	if(pipe_state->settings.stdout.is_pipe) {
+		const ShellPipeInfo* const stdout_info =
+		    TVEC_GET_AT(ShellPipeInfo, pipe_state->array, pipe_state->settings.stdout.idx);
+		ASSERT(stdout_info != NULL);
+
+		if(!stdout_redirected) {
+			// if we already have a stdout redirection, we don't need a new one, so
+			// we just leave the existing one, otherwise we add the pipe fd as
+			// redirection
+
+			int res = dup2(stdout_info->fds[PIPE_WRITE_END], STDOUT_FILENO);
+
+			if(res < 0) {
+				// TODO: report error;
+				exit(ExitCodeImplementationError);
+			}
+		}
+
+		// NOTE: do this also when not using the other end
+		// close the unnecessary READ_END
+
+		int cres = close(stdout_info->fds[PIPE_READ_END]);
+		if(cres != 0) {
+			// TODO: report error;
+			exit(ExitCodeImplementationError);
+		}
+	}
+
+	// close all other pipes
+	{
+		const size_t pipe_info_length = TVEC_LENGTH(ShellPipeInfo, *(pipe_state->array));
+
+		if(pipe_info_length != 0) {
+
+			// we need to not close two sets, they are always after another, so the solution
+			// with the smallest O() is to iterate from 0 to before the first, we need to ignore
+			// and start from the one after the second to ignore until the end, it is two loops
+			// but still O(n)
+
+			for(size_t i = 0; i < pipe_state->close.start; ++i) {
+
+				const ShellPipeInfo* const pipe_info =
+				    TVEC_GET_AT(ShellPipeInfo, pipe_state->array, i);
+				ASSERT(pipe_info != NULL);
+
+				int cres = close(pipe_info->fds[PIPE_READ_END]);
+				if(cres != 0) {
+					// TODO: report error;
+					exit(ExitCodeImplementationError);
+				}
+				cres = close(pipe_info->fds[PIPE_WRITE_END]);
+				if(cres != 0) {
+					// TODO: report error;
+					exit(ExitCodeImplementationError);
+				}
+			}
+
+			for(size_t i = pipe_state->close.end; i < pipe_info_length; ++i) {
+
+				const ShellPipeInfo* const pipe_info =
+				    TVEC_GET_AT(ShellPipeInfo, pipe_state->array, i);
+				ASSERT(pipe_info != NULL);
+
+				int cres = close(pipe_info->fds[PIPE_READ_END]);
+				if(cres != 0) {
+					// TODO: report error;
+					exit(ExitCodeImplementationError);
+				}
+				cres = close(pipe_info->fds[PIPE_WRITE_END]);
+				if(cres != 0) {
+					// TODO: report error;
+					exit(ExitCodeImplementationError);
+				}
+			}
+		}
+	}
+
+	const size_t arguments_length = TVEC_LENGTH(ShellArgument, *arguments);
+
+	char** const args = malloc(sizeof(*args) * (arguments_length + 2));
+
+	{
+		tstr invoke_name_dup = tstr_dup(invoke_name);
+		args[0] = tstr_take(&invoke_name_dup);
+	}
+
+	args[arguments_length + 1] = NULL;
+
+	for(size_t i = 0; i < arguments_length; ++i) {
+		const ShellArgument* arg = TVEC_GET_AT(ShellArgument, arguments, i);
+		ASSERT(arg != NULL);
+
+		tstr arg_dup = tstr_dup(&(arg->parsed));
+		args[i + 1] = tstr_take(&arg_dup);
+	}
+
+	int exec_res = execv(tstr_cstr(path), args);
+
+	// Only reached if exec fails
+	free_execv_args(args);
+	UNUSED(exec_res);
+
+	// TODO: print execute error
+	exit(ExitCodeImplementationError);
+}
+
 static ShellExecuteAsyncResult invoke_executable_impl(const tstr* path,
                                                       const tstr* const invoke_name,
                                                       const ShellArguments* arguments,
@@ -158,154 +330,16 @@ static ShellExecuteAsyncResult invoke_executable_impl(const tstr* path,
 	pid_t pid = fork();
 
 	if(pid == -1) {
-
 		return (ShellExecuteAsyncResult){ .is_ok = false,
 			                              .data = { .error = TSTR_LIT("fork error") } };
 	}
 
 	if(pid == 0) {
 		// Child process: execute the program
+		RETURNS_VOID invoke_executable_child_impl(path, invoke_name, arguments, settings,
+		                                          pipe_state);
 
-		bool stdout_redirected = false;
-
-		if(shell_redirect_is_set(&(settings->stdout))) {
-			int fd = shell_redirect_open_file(&settings->stdout);
-
-			if(fd < 0) {
-				// TODO: report error;
-				exit(ExitCodeImplementationError);
-			}
-
-			int res = dup2(fd, STDOUT_FILENO);
-
-			if(res < 0) {
-				// TODO: report error;
-				exit(ExitCodeImplementationError);
-			}
-
-			shell_redirect_close_file(fd);
-			stdout_redirected = true;
-		}
-
-		if(shell_redirect_is_set(&(settings->stderr))) {
-			int fd = shell_redirect_open_file(&settings->stderr);
-
-			if(fd < 0) {
-				// TODO: report error;
-				exit(ExitCodeImplementationError);
-			}
-
-			int res = dup2(fd, STDERR_FILENO);
-
-			if(res < 0) {
-				// TODO: report error;
-				exit(ExitCodeImplementationError);
-			}
-
-			shell_redirect_close_file(fd);
-		}
-
-		// handle pipes
-
-		if(pipe_state->settings.stdin.is_pipe) {
-			const ShellPipeInfo* const stdin_info =
-			    TVEC_GET_AT(ShellPipeInfo, pipe_state->array, pipe_state->settings.stdin.idx);
-			ASSERT(stdin_info != NULL);
-
-			int res = dup2(stdin_info->fds[PIPE_READ_END], STDIN_FILENO);
-
-			if(res < 0) {
-				// TODO: report error;
-				exit(ExitCodeImplementationError);
-			}
-
-			// close the unnecessary WRITE_END
-			IGNORE_RESULT close(stdin_info->fds[PIPE_WRITE_END]);
-		}
-
-		if(pipe_state->settings.stdout.is_pipe) {
-			const ShellPipeInfo* const stdout_info =
-			    TVEC_GET_AT(ShellPipeInfo, pipe_state->array, pipe_state->settings.stdout.idx);
-			ASSERT(stdout_info != NULL);
-
-			if(!stdout_redirected) {
-				// if we already have a stdout redirection, we don't need a new one, so
-				// we just leave the existing one, otherwise we add the pipe fd as
-				// redirection
-
-				int res = dup2(stdout_info->fds[PIPE_WRITE_END], STDOUT_FILENO);
-
-				if(res < 0) {
-					// TODO: report error;
-					exit(ExitCodeImplementationError);
-				}
-			}
-
-			// NOTE: do this also when not using the other end
-			// close the unnecessary READ_END
-
-			IGNORE_RESULT close(stdout_info->fds[PIPE_READ_END]);
-		}
-
-		// close all other pipes
-		{
-			const size_t pipe_info_length = TVEC_LENGTH(ShellPipeInfo, *(pipe_state->array));
-
-			if(pipe_info_length != 0) {
-
-				// we need to not close two sets, they are always after another, so the solution
-				// with the smallest O() is to iterate from 0 to before the first, we need to ignore
-				// and start from the one after the second to ignore until the end, it is two loops
-				// but still O(n)
-
-				for(size_t i = 0; i < pipe_state->close.start; ++i) {
-
-					const ShellPipeInfo* const pipe_info =
-					    TVEC_GET_AT(ShellPipeInfo, pipe_state->array, i);
-					ASSERT(pipe_info != NULL);
-
-					IGNORE_RESULT close(pipe_info->fds[PIPE_READ_END]);
-					IGNORE_RESULT close(pipe_info->fds[PIPE_WRITE_END]);
-				}
-
-				for(size_t i = pipe_state->close.end; i < pipe_info_length; ++i) {
-
-					const ShellPipeInfo* const pipe_info =
-					    TVEC_GET_AT(ShellPipeInfo, pipe_state->array, i);
-					ASSERT(pipe_info != NULL);
-
-					IGNORE_RESULT close(pipe_info->fds[PIPE_READ_END]);
-					IGNORE_RESULT close(pipe_info->fds[PIPE_WRITE_END]);
-				}
-			}
-		}
-
-		const size_t arguments_length = TVEC_LENGTH(ShellArgument, *arguments);
-
-		char** const args = malloc(sizeof(*args) * (arguments_length + 2));
-
-		{
-			tstr invoke_name_dup = tstr_dup(invoke_name);
-			args[0] = tstr_take(&invoke_name_dup);
-		}
-
-		args[arguments_length + 1] = NULL;
-
-		for(size_t i = 0; i < arguments_length; ++i) {
-			const ShellArgument* arg = TVEC_GET_AT(ShellArgument, arguments, i);
-			ASSERT(arg != NULL);
-
-			tstr arg_dup = tstr_dup(&(arg->parsed));
-			args[i + 1] = tstr_take(&arg_dup);
-		}
-
-		int exec_res = execv(tstr_cstr(path), args);
-
-		// Only reached if exec fails
-		free_execv_args(args);
-		UNUSED(exec_res);
-
-		// TODO: print execute error
+		// TODO: report error;
 		exit(ExitCodeImplementationError);
 	}
 
