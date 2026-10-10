@@ -598,7 +598,7 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 
 		switch(sync->type) {
 			case ShellCommandSynchronizationTypeProcess: {
-				int status;
+				int status = 0;
 				int res = waitpid(sync->data.process.handle.child_pid, &status, 0);
 				if(res < 0) {
 					RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
@@ -635,7 +635,7 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 				if(pipe_setting->stdin.is_pipe) {
 
 					// close the unnecessary READ_END
-					IGNORE_RESULT close(pipe_setting->stdout.state.fds[PIPE_READ_END]);
+					IGNORE_RESULT close(pipe_setting->stdin.state.fds[PIPE_READ_END]);
 				}
 
 				break;

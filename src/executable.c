@@ -208,7 +208,7 @@ static ShellExecuteAsyncResult invoke_executable_impl(const tstr* path,
 		// handle pipes
 
 		if(pipe_settings->stdout.is_pipe) {
-			if(stdout_redirected) {
+			if(!stdout_redirected) {
 				// if we already have a stdout redirection, we don't need a new one, so
 				// we just leave the existing one, otherwise we add the pipe fd as
 				// redirection
@@ -234,7 +234,7 @@ static ShellExecuteAsyncResult invoke_executable_impl(const tstr* path,
 			}
 
 			// close the unnecessary WRITE_END
-			IGNORE_RESULT close(pipe_settings->stdout.state.fds[PIPE_WRITE_END]);
+			IGNORE_RESULT close(pipe_settings->stdin.state.fds[PIPE_WRITE_END]);
 		}
 
 		const size_t arguments_length = TVEC_LENGTH(ShellArgument, *arguments);
@@ -291,7 +291,7 @@ ExitCode invoke_executable_synchronous(const tstr* path, const tstr* const invok
 
 	auto handle = result.data.handle;
 
-	int status;
+	int status = 0;
 	int res = waitpid(handle.child_pid, &status, 0);
 	if(res < 0) {
 		// TODO: print execute error
