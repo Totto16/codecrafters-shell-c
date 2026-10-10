@@ -375,6 +375,7 @@ static ParsedPipelineResult shell_parse_input(tstr_view input,
   for (size_t i = 0; i < TVEC_LENGTH(ShellArgument, arguments); ++i) {
 
     ShellArgument *const arg = TVEC_GET_AT_MUT(ShellArgument, &(arguments), i);
+    ASSERT(arg != NULL);
 
     // check for supported redirections, use the original string, as quoted
     // strings are not valid
@@ -419,6 +420,7 @@ static ParsedPipelineResult shell_parse_input(tstr_view input,
 
       ShellArgument *const next_arg =
           TVEC_GET_AT_MUT(ShellArgument, &(arguments), i + 1);
+      ASSERT(next_arg != NULL);
 
       // resolve it to an absolute path, set the location
       {
@@ -469,7 +471,7 @@ static ParsedPipelineResult shell_parse_input(tstr_view input,
       // we have a pipe, assert that we have a valid program before it, than add
       // it to the pipeline, and clear out the current program
 
-      if (!tstr_is_null(&(current_program.program.parsed))) {
+      if (tstr_is_null(&(current_program.program.parsed))) {
         return (ParsedPipelineResult){
             .is_ok = false,
             .data = {.error = TSTR_LIT("a pipeline needs a program and can't "
@@ -569,6 +571,7 @@ static void free_shell_arguments(ShellArguments *args) {
   for (size_t i = 0; i < TVEC_LENGTH(ShellArgument, *args); ++i) {
 
     ShellArgument *arg = TVEC_GET_AT_MUT(ShellArgument, args, i);
+    ASSERT(arg != NULL);
 
     free_shell_argument(arg);
   }
@@ -612,6 +615,7 @@ void free_shell_pipeline(ShellParseDataPipeline *pipeline) {
   for (size_t i = 0; i < TVEC_LENGTH(ShellCommand, pipeline->commands); ++i) {
 
     ShellCommand *arg = TVEC_GET_AT_MUT(ShellCommand, &(pipeline->commands), i);
+    ASSERT(arg != NULL);
 
     free_shell_command(arg);
   }
@@ -629,6 +633,7 @@ void free_shell_commands_not_found(ShellCommandsNotFound *not_found) {
 
     ShellCommandNotFound *arg =
         TVEC_GET_AT_MUT(ShellCommandNotFound, &(not_found->array), i);
+    ASSERT(arg != NULL);
 
     free_shell_command_not_found(arg);
   }
@@ -756,6 +761,7 @@ ShellParseDataResult shell_parse_data(tstr_view input,
 
     ParsedProgram *const arg =
         TVEC_GET_AT_MUT(ParsedProgram, &(parsed_pipeline.programs), i);
+    ASSERT(arg != NULL);
 
     ShellProcessProgramResult process_res = shell_process_program(arg);
 

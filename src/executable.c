@@ -125,6 +125,7 @@ tstr get_executable_path(tstr_view name) {
 
     const PathDirectory *const arg =
         TVEC_GET_AT(PathDirectory, &directories, i);
+    ASSERT(arg != NULL);
 
     tstr executable_path = path_dir_get_executable(arg->path, name);
 
@@ -255,6 +256,8 @@ invoke_executable_impl(const tstr *path, const tstr *const invoke_name,
 
     for (size_t i = 0; i < arguments_length; ++i) {
       const ShellArgument *arg = TVEC_GET_AT(ShellArgument, arguments, i);
+      ASSERT(arg != NULL);
+
       tstr arg_dup = tstr_dup(&(arg->parsed));
       args[i + 1] = tstr_take(&arg_dup);
     }

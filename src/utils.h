@@ -60,6 +60,36 @@ extern "C" {
 
 #define UNUSED(v) ((void)(v))
 
+// cool trick from here:
+// https://stackoverflow.com/questions/777261/avoiding-unused-variables-warnings-when-using-assert-in-a-release-build
+#ifdef NDEBUG
+#define ASSERT(x) /* NOLINT(readability-identifier-naming) */                  \
+  do {                                                                         \
+    UNUSED((x));                                                               \
+  } while (false)
+
+#undef assert
+
+#define UNREACHABLE()                                                          \
+  do {                                                                         \
+    fprintf(stderr, "[%s %s:%d]: UNREACHABLE\n", __func__, __FILE__,           \
+            __LINE__);                                                         \
+    exit(ExitCodeFailure);                                                     \
+  } while (false)
+
+#else
+#include <assert.h>
+
+#define ASSERT(x) assert(x)
+
+#define UNREACHABLE()                                                          \
+  do {                                                                         \
+    ASSERT(false &&                                                            \
+           "UNREACHABLE"); /* NOLINT(cert-dcl03-c,misc-static-assert) */       \
+  } while (false)
+
+#endif
+
 #ifdef __cplusplus
 }
 #endif

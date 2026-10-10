@@ -28,6 +28,7 @@ exit_parse_arguments(const ShellArguments *args) {
 
   if (args->length == 1) {
     const ShellArgument *const arg1 = TVEC_GET_AT(ShellArgument, args, 0);
+    ASSERT(arg1 != NULL);
     int result = 0;
     bool ok = tstr_view_to_int(tstr_as_view(&(arg1->parsed)), &result);
 
@@ -108,6 +109,7 @@ echo_parse_arguments(const ShellArguments *args) {
   for (size_t i = 0; i < TVEC_LENGTH(ShellArgument, *args); ++i) {
 
     const ShellArgument *const arg = TVEC_GET_AT(ShellArgument, args, i);
+    ASSERT(arg != NULL);
 
     if (!processed_args) {
 
@@ -151,6 +153,7 @@ static void free_echo_arguments(EchoArguments *args) {
   for (size_t i = 0; i < TVEC_LENGTH(EchoArgument, *args); ++i) {
 
     EchoArgument *arg = TVEC_GET_AT_MUT(EchoArgument, args, i);
+    ASSERT(arg != NULL);
 
     free_echo_argument(arg);
   }
@@ -203,6 +206,7 @@ static ExitCode echo_invoke(shell_dynamic_args args, const ShellHandle shell,
 
     const EchoArgument *const arg =
         TVEC_GET_AT(EchoArgument, &(echo_data->args), i);
+    ASSERT(arg != NULL);
 
     int res = SHELL_FPINTF(stdout, TSTR_FMT, TSTR_FMT_ARGS(arg->parsed));
     if (res < 0) {
@@ -300,6 +304,7 @@ type_parse_arguments(const ShellArguments *args) {
   for (size_t i = 0; i < TVEC_LENGTH(ShellArgument, *args); ++i) {
 
     const ShellArgument *const arg = TVEC_GET_AT(ShellArgument, args, i);
+    ASSERT(arg != NULL);
 
     TypeArgument argument = {.name = tstr_as_view(&(arg->parsed))};
 
@@ -339,6 +344,7 @@ static ExitCode type_invoke(shell_dynamic_args args, const ShellHandle shell,
 
     const TypeArgument *const arg =
         TVEC_GET_AT(TypeArgument, &(type_data->args), i);
+    ASSERT(arg != NULL);
 
     CommandType command_type = determine_command_type(arg->name);
 
@@ -505,6 +511,7 @@ cd_parse_arguments(const ShellArguments *args) {
         .is_ok = false, .data = {.error = TSTR_LIT("cd: not implemented yet")}};
   } else if (args->length == 1) {
     const ShellArgument *const arg1 = TVEC_GET_AT(ShellArgument, args, 0);
+    ASSERT(arg1 != NULL);
 
     CdData cd_data = {.path = tstr_as_view(&(arg1->parsed))};
     RETURN_ARGUMENT(CdData, cd_data);

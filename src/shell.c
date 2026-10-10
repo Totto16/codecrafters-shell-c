@@ -226,7 +226,7 @@ static bool shell_set_prompt_to_input_state(ShellState *state) {
     prompt = shell_get_prompt(state);
 
     if (tstr_is_null(&prompt)) {
-      RETURNS_VOID shell_exit(state, ExitCodeGenericError);
+      RETURNS_VOID shell_global_exit(state, ExitCodeGenericError);
 
       RETURNS_VOID shell_print_error("[INTERNAL] prompt print error");
       return false;
@@ -455,8 +455,7 @@ shell_execute_command_in_subshell(const ShellCommand *const command,
     return;
   }
   default: {
-    // TODO: make custom unreachable, that also fails in release mode
-    unreachable();
+    UNREACHABLE();
     break;
   }
   }
@@ -488,6 +487,8 @@ static void shell_execute_pipeline(const ShellParseDataPipeline *pipeline,
   if (pipeline_length == 1) {
     const ShellCommand *const command =
         TVEC_GET_AT(ShellCommand, &(pipeline->commands), 0);
+    ASSERT(command != NULL);
+
     RETURNS_VOID shell_execute_command_synchronous(command, state);
     return;
   }
@@ -527,8 +528,10 @@ static void shell_execute_pipeline(const ShellParseDataPipeline *pipeline,
 
       ShellPipeSettings *const pipe_setting =
           TVEC_GET_AT_MUT(ShellPipeSettings, &pipe_settings, i);
+      ASSERT(pipe_setting != NULL);
       ShellCommandSynchronization *const sync =
           TVEC_GET_AT_MUT(ShellCommandSynchronization, &synchronization, i);
+      ASSERT(sync != NULL);
 
       *sync = (ShellCommandSynchronization){
           .type = ShellCommandSynchronizationTypeError,
@@ -569,10 +572,13 @@ static void shell_execute_pipeline(const ShellParseDataPipeline *pipeline,
 
     const ShellCommand *const command =
         TVEC_GET_AT(ShellCommand, &(pipeline->commands), i);
+    ASSERT(command != NULL);
     ShellCommandSynchronization *const sync =
         TVEC_GET_AT_MUT(ShellCommandSynchronization, &synchronization, i);
+    ASSERT(sync != NULL);
     const ShellPipeSettings *const pipe_setting =
         TVEC_GET_AT(ShellPipeSettings, &pipe_settings, i);
+    ASSERT(pipe_setting != NULL);
 
     // if we have a executable, launch it with the pipe settings and get the pid
     // for a builtin start a new thread and get the thread_id
@@ -603,8 +609,10 @@ static void shell_execute_pipeline(const ShellParseDataPipeline *pipeline,
 
     ShellCommandSynchronization *const sync =
         TVEC_GET_AT_MUT(ShellCommandSynchronization, &synchronization, i);
+    ASSERT(sync != NULL);
     const ShellPipeSettings *const pipe_setting =
         TVEC_GET_AT(ShellPipeSettings, &pipe_settings, i);
+    ASSERT(pipe_setting != NULL);
 
     switch (sync->type) {
     case ShellCommandSynchronizationTypeProcess: {
@@ -746,6 +754,7 @@ void shell_repl_step(ShellState *state) {
 
       const ShellCommandNotFound *const command_not_found =
           TVEC_GET_AT(ShellCommandNotFound, &(not_found.array), i);
+      ASSERT(command_not_found != NULL);
 
       int res = fprintf(stderr, TSTR_FMT ": command not found\n",
                         TSTR_FMT_ARGS(command_not_found->name));
@@ -931,7 +940,7 @@ NODISCARD static const char *shell_get_prompt_el_cb(EditLine *el) {
   return prompt_str;
 
 err:
-  RETURNS_VOID shell_exit(state, ExitCodeImplementationError);
+  RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
 
   RETURNS_VOID shell_print_error("[INTERNAL] prompt print error");
   return "$ ";
