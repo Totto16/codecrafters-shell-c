@@ -36,7 +36,7 @@ typedef struct {
 
 static tstr shell_get_prompt(const ShellState* const state) {
 
-	// TODO. support setting the prompt dynamically
+	// TODO(Totto): support setting the prompt dynamically
 	UNUSED(state);
 
 	return TSTR_LIT("$ ");
@@ -139,7 +139,7 @@ static void shell_virtual_fn_subshell_exit(shell_virtual_context ctx, const Exit
 	ShellSubShellState* state = ctx;
 
 	if(!data->has_code) {
-		// TODO: add this to the instance state, once we support "&&" "||" and ";"
+		// TODO(Totto): add this to the instance state, once we support "&&" "||" and ";"
 		// alias multiple commands in one subshell
 		// RETURNS_VOID shell_exit(state, state->command_state.exit_code);
 		RETURNS_VOID shell_exit(&(state->instance), ExitCodeSuccess);
@@ -286,9 +286,39 @@ static void shell_execute_command_synchronous(const ShellCommand* const command,
 		case ShellCommandTypeExecutable: {
 			const ShellCommandExecutable executable = command->data.executable;
 
-			ExitCode command_exit_code = invoke_executable_synchronous(
+			ShellExecuteSyncResult execute_res = invoke_executable_synchronous(
 			    &executable.path, &executable.invoke_name, &(command->args), &(command->settings));
-			set_command_exit_code(state, command_exit_code);
+
+			switch(execute_res.type) {
+				case ShellExecuteSyncResultTypeExit: {
+					set_command_exit_code(state, execute_res.data.exit);
+					break;
+				}
+				case ShellExecuteSyncResultTypeSignal: {
+					const ShellSignal signal = execute_res.data.signal;
+					RETURNS_VOID shell_print_error("Process exited with signal <%u>: %s\n", signal,
+					                               strsignal(signal));
+
+					// TODO(Totto): is this correct, can we just use it as uint8_t or do we need to
+					// add 18 for consitency with bash?
+					set_command_exit_code(state, signal);
+					break;
+				}
+				case ShellExecuteSyncResultTypeError: {
+
+					RETURNS_VOID shell_print_error("Execute error: " TSTR_FMT "\n",
+					                               TSTR_FMT_ARGS(execute_res.data.error));
+					tstr_free(&(execute_res.data.error));
+
+					break;
+				}
+				default: {
+					RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+					RETURNS_VOID shell_print_error("[INTERNAL] Invalid execute result type\n");
+					break;
+				}
+			}
 
 			break;
 		}
@@ -866,7 +896,7 @@ static ShellSetupResult shell_setup_repl(const char* const program_name) {
 			                       .data = { .error = TSTR_LIT("libedit init error") } };
 	}
 
-	// TODO: setup custom libedit behaviour
+	// TODO(Totto): setup custom libedit behaviour
 	//  this includes: signal handling, tab completion, history
 
 	ShellInputState input_state = { .el = el };
@@ -878,7 +908,7 @@ static ShellSetupResult shell_setup_repl(const char* const program_name) {
 			                       .data = { .error = TSTR_LIT("readline init error") } };
 	}
 
-	// TODO: setup custom readline behaviour
+	// TODO(Totto): setup custom readline behaviour
 	//  this includes: signal handling, tab completion, history
 
 	ShellInputState input_state = { .prompt = tstr_null() };
@@ -989,7 +1019,7 @@ NODISCARD static bool shell_setup_prompt(ShellState* state) {
 	if(!ok) {
 		return false;
 	}
-	// TODO: set editor, for standard shortcuts
+	// TODO(TOtto): set editor, for standard shortcuts
 	// el_set(EL_EDITOR, "emacs" "vi")
 	return true;
 #elif SHELL_USE_EDIT_LIBRARY == 1

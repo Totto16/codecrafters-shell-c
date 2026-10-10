@@ -352,9 +352,10 @@ static ShellExecuteAsyncResult invoke_executable_impl(const tstr* path,
 	return (ShellExecuteAsyncResult){ .is_ok = true, .data = { .handle = { .child_pid = pid } } };
 }
 
-ExitCode invoke_executable_synchronous(const tstr* path, const tstr* const invoke_name,
-                                       const ShellArguments* arguments,
-                                       const ShellRedirectSettings* settings) {
+ShellExecuteSyncResult invoke_executable_synchronous(const tstr* path,
+                                                     const tstr* const invoke_name,
+                                                     const ShellArguments* arguments,
+                                                     const ShellRedirectSettings* settings) {
 
 	ShellPipeInfoArray pipe_info_array = TVEC_EMPTY(ShellPipeInfo);
 
@@ -369,9 +370,8 @@ ExitCode invoke_executable_synchronous(const tstr* path, const tstr* const invok
 	    invoke_executable_impl(path, invoke_name, arguments, settings, &pipe_state);
 
 	if(!result.is_ok) {
-		// TODO. report the exact error somehow
-		tstr_free(&(result.data.error));
-		return ExitCodeGenericError;
+		return (ShellExecuteSyncResult){ .type = ShellExecuteSyncResultTypeError,
+			                             .data = { .error = result.data.error } };
 	}
 
 	auto handle = result.data.handle;
@@ -379,20 +379,22 @@ ExitCode invoke_executable_synchronous(const tstr* path, const tstr* const invok
 	int status = 0;
 	int res = waitpid(handle.child_pid, &status, 0);
 	if(res < 0) {
-		// TODO: print execute error
-		return ExitCodeImplementationError;
+		return (ShellExecuteSyncResult){ .type = ShellExecuteSyncResultTypeError,
+			                             .data = { .error = TSTR_LIT("waitpid error") } };
 	}
 
 	if(WIFEXITED(status)) {
 		uint8_t exit_status = WEXITSTATUS(status);
-		return exit_status;
+		return (ShellExecuteSyncResult){ .type = ShellExecuteSyncResultTypeExit,
+			                             .data = { .exit = exit_status } };
 	} else if(WIFSIGNALED(status)) {
 		uint8_t signal_number = WTERMSIG(status);
-		return signal_number;
+		return (ShellExecuteSyncResult){ .type = ShellExecuteSyncResultTypeSignal,
+			                             .data = { .signal = signal_number } };
 	}
 
-	// TODO: print execute error
-	return ExitCodeGenericError;
+	return (ShellExecuteSyncResult){ .type = ShellExecuteSyncResultTypeError,
+		                             .data = { .error = TSTR_LIT("unreachable") } };
 }
 
 NODISCARD ShellExecuteAsyncResult invoke_executable_async(const tstr* path, const tstr* invoke_name,

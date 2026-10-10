@@ -645,7 +645,7 @@ typedef struct {
 	} data;
 } ShellProcessProgramResult;
 
-ShellProcessProgramResult shell_process_program(ParsedProgram* program) {
+static ShellProcessProgramResult shell_process_program(ParsedProgram* program) {
 	const tstr* const prog_name = &(program->program.parsed);
 	const ShellArguments* const prog_args = &(program->args);
 
@@ -707,7 +707,10 @@ ShellProcessProgramResult shell_process_program(ParsedProgram* program) {
 				                                .data = { .ok = command } };
 		}
 		default: {
-			// TODO: report internal error
+			return (ShellProcessProgramResult){
+				.type = ShellProcessProgramResultTypeError,
+				.data = { .error = TSTR_LIT("[INTERNAL] invalid command type") }
+			};
 			break;
 		}
 	}
@@ -777,7 +780,7 @@ ShellParseDataResult shell_parse_data(tstr_view input, const ShellHandle shell) 
 					                                         "[INTERNAL] wrong error type") } };
 			}
 			default: {
-				// TODO: collect errors much like command not found, not just report one
+				// TODO(Totto): collect errors much like command not found, not just report one
 				return (ShellParseDataResult){ .type = ShellParseDataResultTypeError,
 					                           .data = { .error = process_res.data.error } };
 			}
