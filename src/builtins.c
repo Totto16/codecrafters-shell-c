@@ -115,7 +115,7 @@ static ShellParseArgumentsResult echo_parse_arguments(const ShellArguments* args
 
 		if(!processed_args) {
 
-			// TODO: support also -enE etc.
+			// TODO(Totto): support also -enE etc.
 
 			if(tstr_eq_static_tstr(&(arg->parsed), TSTR_STATIC_LIT("-n"))) {
 				echo_data.newline = false;
@@ -131,7 +131,7 @@ static ShellParseArgumentsResult echo_parse_arguments(const ShellArguments* args
 			processed_args = true;
 		}
 
-		// TODO: process escapes, if there are any and it is enabled
+		// TODO(Totto): process escapes, if there are any and it is enabled
 
 		EchoArgument argument = { .original = tstr_as_view(&(arg->parsed)),
 			                      .parsed = tstr_dup(&(arg->parsed)) };
@@ -299,7 +299,7 @@ static ShellParseArgumentsResult type_parse_arguments(const ShellArguments* args
 		.args = TVEC_EMPTY(TypeArgument),
 	};
 
-	// TODO: support options for type
+	// TODO(Totto): support options for type
 
 	for(size_t i = 0; i < TVEC_LENGTH(ShellArgument, *args); ++i) {
 
@@ -437,7 +437,7 @@ typedef struct {
 
 static ShellParseArgumentsResult pwd_parse_arguments(const ShellArguments* args) {
 
-	// TODO: support options to pwd
+	// TODO(Totto): support options to pwd
 
 	if(args->length == 0) {
 		PwdData pwd_data = { ._unused = MONOSTATE };
@@ -498,10 +498,10 @@ typedef struct {
 
 static ShellParseArgumentsResult cd_parse_arguments(const ShellArguments* args) {
 
-	// TODO: support options to cd
+	// TODO(Totto): support options to cd
 
 	if(args->length == 0) {
-		// TODO: support cd without args
+		// TODO(Totto): support cd without args
 		return (ShellParseArgumentsResult){
 			.is_ok = false, .data = { .error = TSTR_LIT("cd: not implemented yet") }
 		};
@@ -630,7 +630,7 @@ static const BuiltinCommand builtin_function_cd = {
 const BuiltinCommand g_builtin_functions[] = {
 	builtin_function_exit, builtin_function_echo, builtin_function_type,
 	builtin_function_pwd,  builtin_function_cd,
-	// TODO: add help builtin
+	// TODO(Totto): add help builtin
 };
 
 static_assert(ARRAY_SIZE(g_builtin_functions) == BUILTIN_FUNCTION_COUNT,
@@ -827,7 +827,8 @@ static void drain_stream(int fd) {
 	}
 }
 
-static void free_shell_io_in_subshell(ShellIO io, const ShellPipeState* const pipe_state) {
+NODISCARD static bool free_shell_io_in_subshell(ShellIO io,
+                                                const ShellPipeState* const pipe_state) {
 
 	free_shell_io_in_current_context(io);
 
@@ -842,8 +843,9 @@ static void free_shell_io_in_subshell(ShellIO io, const ShellPipeState* const pi
 		RETURNS_VOID drain_stream(stdin_fd);
 
 		int cres = close(stdin_fd);
-		// TODO: maybe report errors here
-		UNUSED(cres);
+		if(cres != 0) {
+			return false;
+		}
 	}
 
 	if(pipe_state->settings.stdout.is_pipe) {
@@ -855,9 +857,11 @@ static void free_shell_io_in_subshell(ShellIO io, const ShellPipeState* const pi
 		const int stdout_fd = stdout_info->fds[PIPE_WRITE_END];
 
 		int cres = close(stdout_fd);
-		// TODO: maybe report errors here
-		UNUSED(cres);
+		if(cres != 0) {
+			return false;
+		}
 	}
+	return true;
 }
 
 ExitCode invoke_shell_builtin_in_subshell(const ShellCommandBuiltin* builtin, ShellHandle shell,
@@ -872,7 +876,7 @@ ExitCode invoke_shell_builtin_in_subshell(const ShellCommandBuiltin* builtin, Sh
 
 	ExitCode command_exit_code = builtin->command.invoke(builtin->args, shell, io);
 
-	free_shell_io_in_subshell(io, pipe_state);
+	IGNORE_RESULT free_shell_io_in_subshell(io, pipe_state);
 
 	return command_exit_code;
 }

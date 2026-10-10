@@ -52,10 +52,12 @@ extern "C" {
 #if (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202000) || __cplusplus
 	#define NODISCARD [[nodiscard]]
 	#define MAYBE_UNUSED [[maybe_unused]]
+	#define NORETURN [[noreturn]]
 #else
     // see e.g. https://www.gnu.org/software/gnulib/manual/html_node/Attributes.html
 	#define NODISCARD __attribute__((__warn_unused_result__))
 	#define MAYBE_UNUSED __attribute__((__unused__))
+	#define NORETURN __attribute__ ((__noreturn__))
 #endif
 
 #define UNUSED(v) ((void)(v))

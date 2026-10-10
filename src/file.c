@@ -115,7 +115,7 @@ tstr path_dir_get_executable(tstr_view dir, tstr_view name) {
 	return path;
 }
 
-// TODO: make compatible with other OSes
+// TODO(Totto): make compatible with other OSes
 #include <linux/limits.h>
 
 tstr path_get_cwd(void) {

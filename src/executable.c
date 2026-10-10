@@ -64,13 +64,13 @@ static PathDirectoriesResult get_path_directories(tstr_view path_env) {
 	// Note: we remove non existent directories and normalize the directories
 	// here (ends without "/", no ".." or symlink normalizing, with
 	// path_normalize_dir_ending)
-	// TODO: use a full normalize for the directories
+	// TODO(Totto): use a full normalize for the directories
 
-	// TODO: should we support that?
+	// TODO(Totto): should we support that?
 	//  NOTE: non absolute paths in the PATH env variable are ignore (e.g.
 	//  "./my_relative_dir" or "my_relative_dir")
 
-	// TODO: should we support "~" expansion
+	// TODO(Totto): should we support "~" expansion
 
 	size_t start = 0;
 
@@ -150,10 +150,27 @@ static void free_execv_args(char** const args) {
 	free(args);
 }
 
-static void invoke_executable_child_impl(const tstr* path, const tstr* const invoke_name,
-                                         const ShellArguments* arguments,
-                                         const ShellRedirectSettings* settings,
-                                         const ShellPipeState* pipe_state) {
+NORETURN static void exe_report_error(ExitCode code, const char* message, ...) {
+
+	va_list args;
+	va_start(args, message);
+
+	int res = vfprintf(stderr, message, args);
+	va_end(args);
+	if(res < 0) {
+		fflush(stderr);
+		// Note: we already have an error, so no reporting possible here
+		goto report_error_end;
+	}
+
+report_error_end:
+	exit(code);
+}
+
+NORETURN static void invoke_executable_child_impl(const tstr* path, const tstr* const invoke_name,
+                                                  const ShellArguments* arguments,
+                                                  const ShellRedirectSettings* settings,
+                                                  const ShellPipeState* pipe_state) {
 
 	bool stdout_redirected = false;
 
@@ -161,15 +178,13 @@ static void invoke_executable_child_impl(const tstr* path, const tstr* const inv
 		int fd = shell_redirect_open_file(&settings->stdout);
 
 		if(fd < 0) {
-			// TODO: report error;
-			exit(ExitCodeImplementationError);
+			exe_report_error(ExitCodeImplementationError, "Couldn't open stdout redirect file\n");
 		}
 
 		int res = dup2(fd, STDOUT_FILENO);
 
 		if(res < 0) {
-			// TODO: report error;
-			exit(ExitCodeImplementationError);
+			exe_report_error(ExitCodeImplementationError, "Couldn't replace stdout\n");
 		}
 
 		shell_redirect_close_file(fd);
@@ -180,15 +195,13 @@ static void invoke_executable_child_impl(const tstr* path, const tstr* const inv
 		int fd = shell_redirect_open_file(&settings->stderr);
 
 		if(fd < 0) {
-			// TODO: report error;
-			exit(ExitCodeImplementationError);
+			exe_report_error(ExitCodeImplementationError, "Couldn't open stderr redirect file\n");
 		}
 
 		int res = dup2(fd, STDERR_FILENO);
 
 		if(res < 0) {
-			// TODO: report error;
-			exit(ExitCodeImplementationError);
+			exe_report_error(ExitCodeImplementationError, "Couldn't replace stderr\n");
 		}
 
 		shell_redirect_close_file(fd);
@@ -204,15 +217,13 @@ static void invoke_executable_child_impl(const tstr* path, const tstr* const inv
 		int res = dup2(stdin_info->fds[PIPE_READ_END], STDIN_FILENO);
 
 		if(res < 0) {
-			// TODO: report error;
-			exit(ExitCodeImplementationError);
+			exe_report_error(ExitCodeImplementationError, "Couldn't replace stdin\n");
 		}
 
 		// close the unnecessary WRITE_END
 		int cres = close(stdin_info->fds[PIPE_WRITE_END]);
 		if(cres != 0) {
-			// TODO: report error;
-			exit(ExitCodeImplementationError);
+			exe_report_error(ExitCodeImplementationError, "Couldn't close the unused pipe end\n");
 		}
 	}
 
@@ -229,8 +240,7 @@ static void invoke_executable_child_impl(const tstr* path, const tstr* const inv
 			int res = dup2(stdout_info->fds[PIPE_WRITE_END], STDOUT_FILENO);
 
 			if(res < 0) {
-				// TODO: report error;
-				exit(ExitCodeImplementationError);
+				exe_report_error(ExitCodeImplementationError, "Couldn't replace stdout\n");
 			}
 		}
 
@@ -239,8 +249,7 @@ static void invoke_executable_child_impl(const tstr* path, const tstr* const inv
 
 		int cres = close(stdout_info->fds[PIPE_READ_END]);
 		if(cres != 0) {
-			// TODO: report error;
-			exit(ExitCodeImplementationError);
+			exe_report_error(ExitCodeImplementationError, "Couldn't close the unused pipe end\n");
 		}
 	}
 
@@ -263,13 +272,11 @@ static void invoke_executable_child_impl(const tstr* path, const tstr* const inv
 
 				int cres = close(pipe_info->fds[PIPE_READ_END]);
 				if(cres != 0) {
-					// TODO: report error;
-					exit(ExitCodeImplementationError);
+					exe_report_error(ExitCodeImplementationError, "Couldn't close a pipe end\n");
 				}
 				cres = close(pipe_info->fds[PIPE_WRITE_END]);
 				if(cres != 0) {
-					// TODO: report error;
-					exit(ExitCodeImplementationError);
+					exe_report_error(ExitCodeImplementationError, "Couldn't close a pipe end\n");
 				}
 			}
 
@@ -281,13 +288,11 @@ static void invoke_executable_child_impl(const tstr* path, const tstr* const inv
 
 				int cres = close(pipe_info->fds[PIPE_READ_END]);
 				if(cres != 0) {
-					// TODO: report error;
-					exit(ExitCodeImplementationError);
+					exe_report_error(ExitCodeImplementationError, "Couldn't close a pipe end\n");
 				}
 				cres = close(pipe_info->fds[PIPE_WRITE_END]);
 				if(cres != 0) {
-					// TODO: report error;
-					exit(ExitCodeImplementationError);
+					exe_report_error(ExitCodeImplementationError, "Couldn't close a pipe end\n");
 				}
 			}
 		}
@@ -318,8 +323,7 @@ static void invoke_executable_child_impl(const tstr* path, const tstr* const inv
 	free_execv_args(args);
 	UNUSED(exec_res);
 
-	// TODO: print execute error
-	exit(ExitCodeImplementationError);
+	exe_report_error(ExitCodeImplementationError, "Execv returned\n");
 }
 
 static ShellExecuteAsyncResult invoke_executable_impl(const tstr* path,
@@ -338,9 +342,7 @@ static ShellExecuteAsyncResult invoke_executable_impl(const tstr* path,
 		// Child process: execute the program
 		RETURNS_VOID invoke_executable_child_impl(path, invoke_name, arguments, settings,
 		                                          pipe_state);
-
-		// TODO: report error;
-		exit(ExitCodeImplementationError);
+		UNREACHABLE();
 	}
 
 	// Parent process: return the child pid
