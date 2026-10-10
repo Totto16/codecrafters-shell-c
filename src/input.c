@@ -74,12 +74,14 @@ ShellInputResult shell_get_input(ShellInputState* const state) {
 
 		if(get_result == NULL) {
 			if(feof(stdin) != 0) {
+				RETURNS_VOID free(data);
 				return (ShellInputResult){ .type = ShellInputResultTypeEOF, .data = {} };
 			} else if(ferror(stdin) != 0) {
 				RETURNS_VOID free(data);
 				return (ShellInputResult){ .type = ShellInputResultTypeError,
 					                       .data = { .error = TSTR_LIT("stream error in fgets") } };
 			} else {
+				RETURNS_VOID free(data);
 				return (ShellInputResult){ .type = ShellInputResultTypeError,
 					                       .data = { .error = TSTR_LIT("unkown fgets error") } };
 			}

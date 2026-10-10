@@ -432,7 +432,7 @@ static void shell_execute_command_in_subshell(const ShellCommand* const command,
 			    invoke_executable_async(&executable.path, &executable.invoke_name, &(command->args),
 			                            &(command->settings), pipe_settings);
 
-			if(res.is_ok) {
+			if(!res.is_ok) {
 				*result =
 				    (ShellCommandSynchronization){ .type = ShellCommandSynchronizationTypeError,
 					                               .data = { .error = res.data.error } };
@@ -579,7 +579,7 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 		//
 	}
 
-	// TODO: here we should implement pipefail, when we need to
+	// TODO(Totto): here we should implement pipefail, when we need to
 
 	// wait for all steps of the pipeline to end
 
@@ -677,7 +677,8 @@ pipeline_cleanup:
 	// cleanup pipes, if they are forked, we need to close them here, otherwise we
 	// need to cleanup after the builtins
 
-	// TODO
+	TVEC_FREE(ShellCommandSynchronization, &synchronization);
+	TVEC_FREE(ShellPipeSettings, &pipe_settings);
 }
 
 void shell_repl_step(ShellState* state) {
