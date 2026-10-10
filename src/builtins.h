@@ -51,12 +51,8 @@ ExitCode invoke_shell_builtin_in_current_context(const ShellCommandBuiltin* buil
 #define PIPE_AMOUNT 2
 
 typedef struct {
-	int fds[PIPE_AMOUNT];
-} ShellPipeState;
-
-typedef struct {
 	bool is_pipe;
-	ShellPipeState state;
+	size_t idx;
 } ShellMaybePipe;
 
 typedef struct {
@@ -64,6 +60,25 @@ typedef struct {
 	ShellMaybePipe stdout;
 } ShellPipeSettings;
 
+typedef struct {
+	int fds[PIPE_AMOUNT];
+} ShellPipeInfo;
+
+TVEC_DEFINE_VEC_TYPE(ShellPipeInfo)
+
+typedef TVEC_TYPENAME(ShellPipeInfo) ShellPipeInfoArray;
+
+typedef struct {
+	size_t start;
+	size_t end;
+} ShellPipeClose;
+
+typedef struct {
+	const ShellPipeInfoArray* array;
+	ShellPipeSettings settings;
+	ShellPipeClose close;
+} ShellPipeState;
+
 ExitCode invoke_shell_builtin_in_subshell(const ShellCommandBuiltin* builtin, ShellHandle shell,
                                           const ShellRedirectSettings* settings,
-                                          const ShellPipeSettings* pipe_settings);
+                                          const ShellPipeState* pipe_state);

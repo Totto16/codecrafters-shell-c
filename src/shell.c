@@ -1,13 +1,13 @@
 #include "./shell.h"
 
+#include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
-#include <pthread.h>
-#include <sys/wait.h>
 #include <tstr/tstr.h>
 
 #include "./builtins.h"
@@ -127,7 +127,7 @@ static bool shell_virtual_fn_sync_set_current_working_directory(shell_virtual_co
 	return true;
 }
 
-static ShellVirtualFunctions g_shell_functions_synchronous = {
+static const ShellVirtualFunctions g_shell_functions_synchronous = {
 	.exit = shell_virtual_fn_sync_exit,
 	.get_current_working_directory = shell_virtual_fn_sync_get_current_working_directory,
 	.set_current_working_directory = shell_virtual_fn_sync_set_current_working_directory,
@@ -190,7 +190,7 @@ static bool shell_virtual_fn_subshell_set_current_working_directory(shell_virtua
 	return true;
 }
 
-static ShellVirtualFunctions g_shell_functions_subshell = {
+static const ShellVirtualFunctions g_shell_functions_subshell = {
 	.exit = shell_virtual_fn_subshell_exit,
 	.get_current_working_directory = shell_virtual_fn_subshell_get_current_working_directory,
 	.set_current_working_directory = shell_virtual_fn_subshell_set_current_working_directory,
@@ -311,7 +311,7 @@ typedef struct {
 	ShellSubShellState state;
 	const ShellCommandBuiltin* builtin;
 	const ShellRedirectSettings* settings;
-	const ShellPipeSettings* pipe_settings;
+	const ShellPipeState* pipe_state;
 } ShellSubShellThreadState;
 
 static void* shell_subshell_builtin_thread_entry(void* arg) {
@@ -323,7 +323,7 @@ static void* shell_subshell_builtin_thread_entry(void* arg) {
 	ShellHandle shell_handle = SHELL_HANDLE_SUBSHELL(subshell_state);
 
 	ExitCode command_exit_code = invoke_shell_builtin_in_subshell(
-	    state->builtin, shell_handle, state->settings, state->pipe_settings);
+	    state->builtin, shell_handle, state->settings, state->pipe_state);
 
 	shell_exit(&(subshell_state->instance), command_exit_code);
 
@@ -369,7 +369,7 @@ static void free_sub_shell_thread_state(ShellSubShellThreadState* state) {
 
 static void shell_execute_command_in_subshell(const ShellCommand* const command,
                                               const ShellState* state,
-                                              const ShellPipeSettings* pipe_settings,
+                                              const ShellPipeState* pipe_state,
                                               ShellCommandSynchronization* result) {
 	switch(command->type) {
 		case ShellCommandTypeBuiltin: {
@@ -405,7 +405,7 @@ static void shell_execute_command_in_subshell(const ShellCommand* const command,
                                        },
                                    .builtin = builtin,
                                    .settings = &(command->settings),
-                                   .pipe_settings = pipe_settings};
+                                   .pipe_state = pipe_state};
 
 			pthread_t thread_id;
 
@@ -430,7 +430,7 @@ static void shell_execute_command_in_subshell(const ShellCommand* const command,
 
 			ShellExecuteAsyncResult res =
 			    invoke_executable_async(&executable.path, &executable.invoke_name, &(command->args),
-			                            &(command->settings), pipe_settings);
+			                            &(command->settings), pipe_state);
 
 			if(!res.is_ok) {
 				*result =
@@ -451,13 +451,24 @@ static void shell_execute_command_in_subshell(const ShellCommand* const command,
 	}
 }
 
-TVEC_DEFINE_AND_IMPLEMENT_VEC_TYPE(ShellPipeSettings)
-
-typedef TVEC_TYPENAME(ShellPipeSettings) ShellPipeSettingsArray;
-
 TVEC_DEFINE_AND_IMPLEMENT_VEC_TYPE(ShellCommandSynchronization)
 
 typedef TVEC_TYPENAME(ShellCommandSynchronization) ShellCommandSynchronizationArray;
+
+TVEC_DEFINE_AND_IMPLEMENT_VEC_TYPE(ShellPipeState)
+
+typedef TVEC_TYPENAME(ShellPipeState) ShellPipeStateArray;
+
+static void free_shell_pipe_states(ShellPipeStateArray* pipe_states) {
+
+	TVEC_FREE(ShellPipeState, pipe_states);
+}
+static void free_shell_pipe_info(ShellPipeInfoArray* pipe_info_array) {
+
+	// TODO(Totto): maybe we should use close and check if all fds are already closed
+
+	TVEC_FREE(ShellPipeInfo, pipe_info_array);
+}
 
 static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, ShellState* state) {
 
@@ -484,37 +495,70 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 	// we need an array for pipes, and than a array to hold sync states (either
 	// for the subshells thread of the builtin or subshell pids of the child
 	// processes for executables)
-	ShellPipeSettingsArray pipe_settings = TVEC_EMPTY(ShellPipeSettings);
+	ShellPipeStateArray pipe_states = TVEC_EMPTY(ShellPipeState);
 	ShellCommandSynchronizationArray synchronization = TVEC_EMPTY(ShellCommandSynchronization);
 
-	TvecResult res =
-	    TVEC_ALLOCATE_UNINITIALIZED(ShellPipeSettings, &pipe_settings, pipeline_length);
+	{
+		TvecResult res = TVEC_ALLOCATE_UNINITIALIZED(ShellPipeState, &pipe_states, pipeline_length);
 
-	if(res != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
-		RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+		if(res != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
+			RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
 
-		RETURNS_VOID shell_print_error("OOM in executing pipeline");
-		return;
-	}
-
-	TvecResult res2 =
-	    TVEC_ALLOCATE_UNINITIALIZED(ShellCommandSynchronization, &synchronization, pipeline_length);
-
-	if(res2 != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
-		RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
-
-		RETURNS_VOID shell_print_error("OOM in executing pipeline");
-		return;
+			RETURNS_VOID shell_print_error("OOM in executing pipeline");
+			return;
+		}
 	}
 
 	{
-		ShellPipeState next_pipe = { .fds = { 0, 0 } };
+		TvecResult res2 = TVEC_ALLOCATE_UNINITIALIZED(ShellCommandSynchronization, &synchronization,
+		                                              pipeline_length);
 
+		if(res2 != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
+			RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+			RETURNS_VOID shell_print_error("OOM in executing pipeline");
+			return;
+		}
+	}
+
+	ShellPipeInfoArray pipe_info_array = TVEC_EMPTY(ShellPipeInfo);
+
+	{
+		TvecResult res3 =
+		    TVEC_ALLOCATE_UNINITIALIZED(ShellPipeInfo, &pipe_info_array, pipeline_length - 1);
+
+		if(res3 != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
+			RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+			RETURNS_VOID shell_print_error("OOM in executing pipeline");
+			return;
+		}
+	}
+
+	{ // fill the pipe array
+
+		for(size_t i = 0; i < (pipeline_length - 1); ++i) {
+
+			ShellPipeInfo* const pipe_info = TVEC_GET_AT_MUT(ShellPipeInfo, &pipe_info_array, i);
+			ASSERT(pipe_info != NULL);
+
+			*pipe_info = (ShellPipeInfo){ .fds = { 0, 0 } };
+			int res = pipe(pipe_info->fds);
+
+			if(res != 0) {
+				RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+				RETURNS_VOID shell_print_error("error in creating pipe");
+				goto pipeline_cleanup;
+			}
+		}
+	}
+
+	{
 		for(size_t i = 0; i < pipeline_length; ++i) {
 
-			ShellPipeSettings* const pipe_setting =
-			    TVEC_GET_AT_MUT(ShellPipeSettings, &pipe_settings, i);
-			ASSERT(pipe_setting != NULL);
+			ShellPipeState* const pipe_state = TVEC_GET_AT_MUT(ShellPipeState, &pipe_states, i);
+			ASSERT(pipe_state != NULL);
 			ShellCommandSynchronization* const sync =
 			    TVEC_GET_AT_MUT(ShellCommandSynchronization, &synchronization, i);
 			ASSERT(sync != NULL);
@@ -523,32 +567,30 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 			    (ShellCommandSynchronization){ .type = ShellCommandSynchronizationTypeError,
 				                               .data = { .error = TSTR_LIT("Not filled yet") } };
 
-			*pipe_setting = (ShellPipeSettings){
-				.stdin = { .is_pipe = false, .state = { .fds = { 0, 0 } } },
-				.stdout = { .is_pipe = false, .state = { .fds = { 0, 0 } } },
+			*pipe_state = (ShellPipeState){
+				.array = &pipe_info_array,
+				.settings=	{
+					.stdin = { .is_pipe = false, .idx = 0 },
+					.stdout = { .is_pipe = false, .idx = 0 },
+				},
+				//TODO
+				.close                         ={.start=0, .end=0},
 			};
 
-			ShellPipeState current_pipe = { .fds = { 0, 0 } };
+			if(i > 0) {
+				const size_t idx = i - 1;
+				pipe_state->settings.stdin = (ShellMaybePipe){ .is_pipe = true, .idx = idx };
+				pipe_state->close = (ShellPipeClose){ .start = idx, .end = idx + 1 };
+			}
 
 			if(i < (pipeline_length - 1)) {
 
-				int res = pipe(current_pipe.fds);
+				pipe_state->settings.stdout = (ShellMaybePipe){ .is_pipe = true, .idx = i };
 
-				if(res != 0) {
-					RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+				const size_t start = i == 0 ? i : pipe_state->close.start;
 
-					RETURNS_VOID shell_print_error("error in creating pipe");
-					goto pipeline_cleanup;
-				}
-
-				pipe_setting->stdout = (ShellMaybePipe){ .is_pipe = true, .state = current_pipe };
+				pipe_state->close = (ShellPipeClose){ .start = start, .end = i + 1 };
 			}
-
-			if(i > 0) {
-				pipe_setting->stdin = (ShellMaybePipe){ .is_pipe = true, .state = next_pipe };
-			}
-
-			next_pipe = current_pipe;
 		}
 	}
 
@@ -559,13 +601,12 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 		ShellCommandSynchronization* const sync =
 		    TVEC_GET_AT_MUT(ShellCommandSynchronization, &synchronization, i);
 		ASSERT(sync != NULL);
-		const ShellPipeSettings* const pipe_setting =
-		    TVEC_GET_AT(ShellPipeSettings, &pipe_settings, i);
-		ASSERT(pipe_setting != NULL);
+		const ShellPipeState* const pipe_state = TVEC_GET_AT(ShellPipeState, &pipe_states, i);
+		ASSERT(pipe_state != NULL);
 
 		// if we have a executable, launch it with the pipe settings and get the pid
 		// for a builtin start a new thread and get the thread_id
-		RETURNS_VOID shell_execute_command_in_subshell(command, state, pipe_setting, sync);
+		RETURNS_VOID shell_execute_command_in_subshell(command, state, pipe_state, sync);
 
 		if(sync->type == ShellCommandSynchronizationTypeError) {
 			RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
@@ -592,12 +633,12 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 		ShellCommandSynchronization* const sync =
 		    TVEC_GET_AT_MUT(ShellCommandSynchronization, &synchronization, i);
 		ASSERT(sync != NULL);
-		const ShellPipeSettings* const pipe_setting =
-		    TVEC_GET_AT(ShellPipeSettings, &pipe_settings, i);
-		ASSERT(pipe_setting != NULL);
+		const ShellPipeState* const pipe_state = TVEC_GET_AT(ShellPipeState, &pipe_states, i);
+		ASSERT(pipe_state != NULL);
 
 		switch(sync->type) {
 			case ShellCommandSynchronizationTypeProcess: {
+
 				int status = 0;
 				int res = waitpid(sync->data.process.handle.child_pid, &status, 0);
 				if(res < 0) {
@@ -623,19 +664,25 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 				}
 
 				// handle pipes, these need to be cleaned up in this scenario only and
-				// after the processes, as the fork duplicates teh pipe fds and they need
+				// after the processes, as the fork duplicates the pipe fds and they need
 				// to be closed in the forked and this process
 
-				if(pipe_setting->stdout.is_pipe) {
-
-					// close the unnecessary WRITE_END
-					IGNORE_RESULT close(pipe_setting->stdout.state.fds[PIPE_WRITE_END]);
-				}
-
-				if(pipe_setting->stdin.is_pipe) {
+				if(pipe_state->settings.stdin.is_pipe) {
+					const ShellPipeInfo* const stdin_info = TVEC_GET_AT(
+					    ShellPipeInfo, pipe_state->array, pipe_state->settings.stdin.idx);
+					ASSERT(stdin_info != NULL);
 
 					// close the unnecessary READ_END
-					IGNORE_RESULT close(pipe_setting->stdin.state.fds[PIPE_READ_END]);
+					IGNORE_RESULT close(stdin_info->fds[PIPE_READ_END]);
+				}
+
+				if(pipe_state->settings.stdout.is_pipe) {
+					const ShellPipeInfo* const stdout_info = TVEC_GET_AT(
+					    ShellPipeInfo, pipe_state->array, pipe_state->settings.stdout.idx);
+					ASSERT(stdout_info != NULL);
+
+					// close the unnecessary WRITE_END
+					IGNORE_RESULT close(stdout_info->fds[PIPE_WRITE_END]);
 				}
 
 				break;
@@ -677,8 +724,10 @@ pipeline_cleanup:
 	// cleanup pipes, if they are forked, we need to close them here, otherwise we
 	// need to cleanup after the builtins
 
+	// note: internal state are already cleared out in case of a successful traversal
 	TVEC_FREE(ShellCommandSynchronization, &synchronization);
-	TVEC_FREE(ShellPipeSettings, &pipe_settings);
+	free_shell_pipe_states(&pipe_states);
+	free_shell_pipe_info(&pipe_info_array);
 }
 
 void shell_repl_step(ShellState* state) {

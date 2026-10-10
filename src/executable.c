@@ -154,7 +154,7 @@ static ShellExecuteAsyncResult invoke_executable_impl(const tstr* path,
                                                       const tstr* const invoke_name,
                                                       const ShellArguments* arguments,
                                                       const ShellRedirectSettings* settings,
-                                                      const ShellPipeSettings* pipe_settings) {
+                                                      const ShellPipeState* pipe_state) {
 	pid_t pid = fork();
 
 	if(pid == -1) {
@@ -207,26 +207,12 @@ static ShellExecuteAsyncResult invoke_executable_impl(const tstr* path,
 
 		// handle pipes
 
-		if(pipe_settings->stdout.is_pipe) {
-			if(!stdout_redirected) {
-				// if we already have a stdout redirection, we don't need a new one, so
-				// we just leave the existing one, otherwise we add the pipe fd as
-				// redirection
+		if(pipe_state->settings.stdin.is_pipe) {
+			const ShellPipeInfo* const stdin_info =
+			    TVEC_GET_AT(ShellPipeInfo, pipe_state->array, pipe_state->settings.stdin.idx);
+			ASSERT(stdin_info != NULL);
 
-				int res = dup2(pipe_settings->stdout.state.fds[PIPE_WRITE_END], STDOUT_FILENO);
-
-				if(res < 0) {
-					// TODO: report error;
-					exit(ExitCodeImplementationError);
-				}
-
-				// close the unnecessary READ_END
-				IGNORE_RESULT close(pipe_settings->stdout.state.fds[PIPE_READ_END]);
-			}
-		}
-
-		if(pipe_settings->stdin.is_pipe) {
-			int res = dup2(pipe_settings->stdin.state.fds[PIPE_READ_END], STDIN_FILENO);
+			int res = dup2(stdin_info->fds[PIPE_READ_END], STDIN_FILENO);
 
 			if(res < 0) {
 				// TODO: report error;
@@ -234,7 +220,64 @@ static ShellExecuteAsyncResult invoke_executable_impl(const tstr* path,
 			}
 
 			// close the unnecessary WRITE_END
-			IGNORE_RESULT close(pipe_settings->stdin.state.fds[PIPE_WRITE_END]);
+			IGNORE_RESULT close(stdin_info->fds[PIPE_WRITE_END]);
+		}
+
+		if(pipe_state->settings.stdout.is_pipe) {
+			const ShellPipeInfo* const stdout_info =
+			    TVEC_GET_AT(ShellPipeInfo, pipe_state->array, pipe_state->settings.stdout.idx);
+			ASSERT(stdout_info != NULL);
+
+			if(!stdout_redirected) {
+				// if we already have a stdout redirection, we don't need a new one, so
+				// we just leave the existing one, otherwise we add the pipe fd as
+				// redirection
+
+				int res = dup2(stdout_info->fds[PIPE_WRITE_END], STDOUT_FILENO);
+
+				if(res < 0) {
+					// TODO: report error;
+					exit(ExitCodeImplementationError);
+				}
+			}
+
+			// NOTE: do this also when not using the other end
+			// close the unnecessary READ_END
+
+			IGNORE_RESULT close(stdout_info->fds[PIPE_READ_END]);
+		}
+
+		// close all other pipes
+		{
+			const size_t pipe_info_length = TVEC_LENGTH(ShellPipeInfo, *(pipe_state->array));
+
+			if(pipe_info_length != 0) {
+
+				// we need to not close two sets, they are always after another, so the solution
+				// with the smallest O() is to iterate from 0 to before the first, we need to ignore
+				// and start from the one after the second to ignore until the end, it is two loops
+				// but still O(n)
+
+				for(size_t i = 0; i < pipe_state->close.start; ++i) {
+
+					const ShellPipeInfo* const pipe_info =
+					    TVEC_GET_AT(ShellPipeInfo, pipe_state->array, i);
+					ASSERT(pipe_info != NULL);
+
+					IGNORE_RESULT close(pipe_info->fds[PIPE_READ_END]);
+					IGNORE_RESULT close(pipe_info->fds[PIPE_WRITE_END]);
+				}
+
+				for(size_t i = pipe_state->close.end; i < pipe_info_length; ++i) {
+
+					const ShellPipeInfo* const pipe_info =
+					    TVEC_GET_AT(ShellPipeInfo, pipe_state->array, i);
+					ASSERT(pipe_info != NULL);
+
+					IGNORE_RESULT close(pipe_info->fds[PIPE_READ_END]);
+					IGNORE_RESULT close(pipe_info->fds[PIPE_WRITE_END]);
+				}
+			}
 		}
 
 		const size_t arguments_length = TVEC_LENGTH(ShellArgument, *arguments);
@@ -275,13 +318,17 @@ ExitCode invoke_executable_synchronous(const tstr* path, const tstr* const invok
                                        const ShellArguments* arguments,
                                        const ShellRedirectSettings* settings) {
 
-	const ShellPipeSettings pipe_settings = {
-		.stdin = { .is_pipe = false, .state = { .fds = { 0, 0 } } },
-		.stdout = { .is_pipe = false, .state = { .fds = { 0, 0 } } },
-	};
+	ShellPipeInfoArray pipe_info_array = TVEC_EMPTY(ShellPipeInfo);
+
+	const ShellPipeState pipe_state = { .array = &pipe_info_array,
+		                                .close = { .start = 0, .end = 0 },
+		                                .settings = {
+		                                    .stdin = { .is_pipe = false, .idx = 0 },
+		                                    .stdout = { .is_pipe = false, .idx = 0 },
+		                                } };
 
 	ShellExecuteAsyncResult result =
-	    invoke_executable_impl(path, invoke_name, arguments, settings, &pipe_settings);
+	    invoke_executable_impl(path, invoke_name, arguments, settings, &pipe_state);
 
 	if(!result.is_ok) {
 		// TODO. report the exact error somehow
@@ -313,7 +360,7 @@ ExitCode invoke_executable_synchronous(const tstr* path, const tstr* const invok
 NODISCARD ShellExecuteAsyncResult invoke_executable_async(const tstr* path, const tstr* invoke_name,
                                                           const ShellArguments* arguments,
                                                           const ShellRedirectSettings* settings,
-                                                          const ShellPipeSettings* pipe_settings) {
+                                                          const ShellPipeState* pipe_state) {
 
-	return invoke_executable_impl(path, invoke_name, arguments, settings, pipe_settings);
+	return invoke_executable_impl(path, invoke_name, arguments, settings, pipe_state);
 }

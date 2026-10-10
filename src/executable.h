@@ -28,4 +28,4 @@ typedef struct {
 NODISCARD ShellExecuteAsyncResult invoke_executable_async(const tstr* path, const tstr* invoke_name,
                                                           const ShellArguments* arguments,
                                                           const ShellRedirectSettings* settings,
-                                                          const ShellPipeSettings* pipe_settings);
+                                                          const ShellPipeState* pipe_state);

@@ -7,6 +7,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+TVEC_IMPLEMENT_VEC_TYPE(ShellPipeInfo)
+
 #define RETURN_ARGUMENT(Type, value) \
 	do { \
 		Type* data = malloc(sizeof(Type)); \
@@ -28,6 +30,7 @@ static ShellParseArgumentsResult exit_parse_arguments(const ShellArguments* args
 	if(args->length == 1) {
 		const ShellArgument* const arg1 = TVEC_GET_AT(ShellArgument, args, 0);
 		ASSERT(arg1 != NULL);
+
 		int result = 0;
 		bool ok = tstr_view_to_int(tstr_as_view(&(arg1->parsed)), &result);
 
@@ -768,7 +771,7 @@ ExitCode invoke_shell_builtin_in_current_context(const ShellCommandBuiltin* buil
 }
 
 static ShellIO get_shell_io_in_subshell(const ShellRedirectSettings* const settings,
-                                        const ShellPipeSettings* pipe_settings) {
+                                        const ShellPipeState* const pipe_state) {
 
 	ShellIO io = get_shell_io_in_current_context(settings);
 
@@ -781,7 +784,7 @@ static ShellIO get_shell_io_in_subshell(const ShellRedirectSettings* const setti
 	{
 		// handle pipe data
 
-		if(pipe_settings->stdout.is_pipe) {
+		if(pipe_state->settings.stdout.is_pipe) {
 
 			ShellIOContext* ctx = io.context;
 
@@ -789,10 +792,13 @@ static ShellIO get_shell_io_in_subshell(const ShellRedirectSettings* const setti
 				// if we already have a stdout redirection, we don't need a new one, so
 				// we just leave the existing one, otherwise we add the pipe fd as
 				// redirection
+				const ShellPipeInfo* const stdout_info =
+				    TVEC_GET_AT(ShellPipeInfo, pipe_state->array, pipe_state->settings.stdout.idx);
+				ASSERT(stdout_info != NULL);
+
 				ctx->stdout = (ShellIOContextState){
 					.type = ShellIOContextStateTypeRedirect,
-					.data = { .redirect = { .fd =
-					                            pipe_settings->stdout.state.fds[PIPE_WRITE_END] } }
+					.data = { .redirect = { .fd = stdout_info->fds[PIPE_WRITE_END] } }
 				};
 			}
 		}
@@ -821,13 +827,17 @@ static void drain_stream(int fd) {
 	}
 }
 
-static void free_shell_io_in_subshell(ShellIO io, const ShellPipeSettings* pipe_settings) {
+static void free_shell_io_in_subshell(ShellIO io, const ShellPipeState* const pipe_state) {
 
 	free_shell_io_in_current_context(io);
 
-	if(pipe_settings->stdin.is_pipe) {
+	if(pipe_state->settings.stdin.is_pipe) {
 		// if we have a stdin pipe drain it's input and close the stdin pipe
-		int stdin_fd = pipe_settings->stdin.state.fds[PIPE_READ_END];
+		const ShellPipeInfo* const stdin_info =
+		    TVEC_GET_AT(ShellPipeInfo, pipe_state->array, pipe_state->settings.stdin.idx);
+		ASSERT(stdin_info != NULL);
+
+		int stdin_fd = stdin_info->fds[PIPE_READ_END];
 
 		RETURNS_VOID drain_stream(stdin_fd);
 
@@ -835,9 +845,13 @@ static void free_shell_io_in_subshell(ShellIO io, const ShellPipeSettings* pipe_
 		IGNORE_RESULT close(stdin_fd);
 	}
 
-	if(pipe_settings->stdout.is_pipe) {
+	if(pipe_state->settings.stdout.is_pipe) {
 		// if we have a stdout pipe, close it
-		int stdout_fd = pipe_settings->stdout.state.fds[PIPE_WRITE_END];
+		const ShellPipeInfo* const stdout_info =
+		    TVEC_GET_AT(ShellPipeInfo, pipe_state->array, pipe_state->settings.stdout.idx);
+		ASSERT(stdout_info != NULL);
+
+		const int stdout_fd = stdout_info->fds[PIPE_WRITE_END];
 
 		// TODO: maybe report errors here
 		IGNORE_RESULT close(stdout_fd);
@@ -846,9 +860,9 @@ static void free_shell_io_in_subshell(ShellIO io, const ShellPipeSettings* pipe_
 
 ExitCode invoke_shell_builtin_in_subshell(const ShellCommandBuiltin* builtin, ShellHandle shell,
                                           const ShellRedirectSettings* settings,
-                                          const ShellPipeSettings* pipe_settings) {
+                                          const ShellPipeState* pipe_state) {
 
-	ShellIO io = get_shell_io_in_subshell(settings, pipe_settings);
+	ShellIO io = get_shell_io_in_subshell(settings, pipe_state);
 
 	if(io.context == NULL) {
 		return ExitCodeImplementationError;
@@ -856,7 +870,7 @@ ExitCode invoke_shell_builtin_in_subshell(const ShellCommandBuiltin* builtin, Sh
 
 	ExitCode command_exit_code = builtin->command.invoke(builtin->args, shell, io);
 
-	free_shell_io_in_subshell(io, pipe_settings);
+	free_shell_io_in_subshell(io, pipe_state);
 
 	return command_exit_code;
 }
