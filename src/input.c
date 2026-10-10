@@ -4,137 +4,131 @@
 
 #if SHELL_USE_EDIT_LIBRARY == 0
 void free_shell_input_ok_result(ShellInputOkResult ok) {
-  UNUSED(ok);
-  // Note. no need to free anything, the line buffer is managed by the global
-  // instance of  EditLine *el
+	UNUSED(ok);
+	// Note. no need to free anything, the line buffer is managed by the global
+	// instance of  EditLine *el
 }
 
-ShellInputResult shell_get_input(ShellInputState *const state) {
-  int count = 0;
-  const char *line = el_gets(state->el, &count);
+ShellInputResult shell_get_input(ShellInputState* const state) {
+	int count = 0;
+	const char* line = el_gets(state->el, &count);
 
-  if (line == NULL) {
-    return (ShellInputResult){.type = ShellInputResultTypeEOF, .data = {}};
-  }
+	if(line == NULL) {
+		return (ShellInputResult){ .type = ShellInputResultTypeEOF, .data = {} };
+	}
 
-  if (count < 0) {
-    return (ShellInputResult){.type = ShellInputResultTypeError,
-                              .data = {.error = TSTR_LIT("count is negative")}};
-  }
+	if(count < 0) {
+		return (ShellInputResult){ .type = ShellInputResultTypeError,
+			                       .data = { .error = TSTR_LIT("count is negative") } };
+	}
 
-  return (ShellInputResult){
-      .type = ShellInputResultTypeOk,
-      .data = {.ok = {.data = (tstr_view){.data = line, .len = count}}}};
+	return (ShellInputResult){ .type = ShellInputResultTypeOk,
+		                       .data = {
+		                           .ok = { .data = (tstr_view){ .data = line, .len = count } } } };
 }
 
 #elif SHELL_USE_EDIT_LIBRARY == 1
 void free_shell_input_ok_result(ShellInputOkResult ok) {
-  RETURNS_VOID rl_free(ok.data);
+	RETURNS_VOID rl_free(ok.data);
 }
 
-ShellInputResult shell_get_input(ShellInputState *const state) {
-  // NOTE: prompt can be NULL here
-  char *line = readline(tstr_cstr(&state->prompt));
+ShellInputResult shell_get_input(ShellInputState* const state) {
+	// NOTE: prompt can be NULL here
+	char* line = readline(tstr_cstr(&state->prompt));
 
-  if (line == NULL) {
-    return (ShellInputResult){.type = ShellInputResultTypeEOF, .data = {}};
-  }
+	if(line == NULL) {
+		return (ShellInputResult){ .type = ShellInputResultTypeEOF, .data = {} };
+	}
 
-  return (ShellInputResult){.type = ShellInputResultTypeOk,
-                            .data = {.ok = {.data = line}}};
+	return (ShellInputResult){ .type = ShellInputResultTypeOk, .data = { .ok = { .data = line } } };
 }
 
 #else
 void free_shell_input_ok_result(ShellInputOkResult ok) {
-  RETURNS_VOID free(ok.raw_data);
+	RETURNS_VOID free(ok.raw_data);
 }
 
-#define SHELL_INPUT_BUFFER_SIZE 1024
+	#define SHELL_INPUT_BUFFER_SIZE 1024
 
-ShellInputResult shell_get_input(ShellInputState *const state) {
-  UNUSED(state);
-  char *data = NULL;
-  bool end = false;
+ShellInputResult shell_get_input(ShellInputState* const state) {
+	UNUSED(state);
+	char* data = NULL;
+	bool end = false;
 
-  data = malloc(SHELL_INPUT_BUFFER_SIZE + 1);
+	data = malloc(SHELL_INPUT_BUFFER_SIZE + 1);
 
-  if (data == NULL) {
-    return (ShellInputResult){
-        .type = ShellInputResultTypeError,
-        .data = {.error = TSTR_LIT("OOM in input buffer allocation")}};
-  }
+	if(data == NULL) {
+		return (
+		    ShellInputResult){ .type = ShellInputResultTypeError,
+			                   .data = { .error = TSTR_LIT("OOM in input buffer allocation") } };
+	}
 
-  data[0] = '\0';
+	data[0] = '\0';
 
-  char *current_buffer_start = data;
-  size_t current_buffer_size = SHELL_INPUT_BUFFER_SIZE + 1;
+	char* current_buffer_start = data;
+	size_t current_buffer_size = SHELL_INPUT_BUFFER_SIZE + 1;
 
-  while (true) {
+	while(true) {
 
-    char *get_result =
-        fgets(current_buffer_start, SHELL_INPUT_BUFFER_SIZE + 1, stdin);
+		char* get_result = fgets(current_buffer_start, SHELL_INPUT_BUFFER_SIZE + 1, stdin);
 
-    if (get_result == NULL) {
-      if (feof(stdin) != 0) {
-        return (ShellInputResult){.type = ShellInputResultTypeEOF, .data = {}};
-      } else if (ferror(stdin) != 0) {
-        RETURNS_VOID free(data);
-        return (ShellInputResult){
-            .type = ShellInputResultTypeError,
-            .data = {.error = TSTR_LIT("stream error in fgets")}};
-      } else {
-        return (ShellInputResult){
-            .type = ShellInputResultTypeError,
-            .data = {.error = TSTR_LIT("unkown fgets error")}};
-      }
-    }
+		if(get_result == NULL) {
+			if(feof(stdin) != 0) {
+				return (ShellInputResult){ .type = ShellInputResultTypeEOF, .data = {} };
+			} else if(ferror(stdin) != 0) {
+				RETURNS_VOID free(data);
+				return (ShellInputResult){ .type = ShellInputResultTypeError,
+					                       .data = { .error = TSTR_LIT("stream error in fgets") } };
+			} else {
+				return (ShellInputResult){ .type = ShellInputResultTypeError,
+					                       .data = { .error = TSTR_LIT("unkown fgets error") } };
+			}
+		}
 
-    size_t read_bytes = strlen(current_buffer_start);
+		size_t read_bytes = strlen(current_buffer_start);
 
-    if (read_bytes >= SHELL_INPUT_BUFFER_SIZE) {
-      // if the last byte is a \n, we have exactly that amount of data,
-      // otherwise we have more data
-      const char last_char = current_buffer_start[SHELL_INPUT_BUFFER_SIZE];
-      if (last_char == '\n') {
-        break;
-      }
+		if(read_bytes >= SHELL_INPUT_BUFFER_SIZE) {
+			// if the last byte is a \n, we have exactly that amount of data,
+			// otherwise we have more data
+			const char last_char = current_buffer_start[SHELL_INPUT_BUFFER_SIZE];
+			if(last_char == '\n') {
+				break;
+			}
 
-      const size_t buffer_offset = current_buffer_start - data;
+			const size_t buffer_offset = current_buffer_start - data;
 
-      // we have more data
-      current_buffer_size += SHELL_INPUT_BUFFER_SIZE;
-      char *new_buffer = realloc(data, current_buffer_size);
+			// we have more data
+			current_buffer_size += SHELL_INPUT_BUFFER_SIZE;
+			char* new_buffer = realloc(data, current_buffer_size);
 
-      if (new_buffer == NULL) {
-        free(data);
-        return (ShellInputResult){
-            .type = ShellInputResultTypeError,
-            .data = {.error = TSTR_LIT("OOM in input buffer allocation")}};
-      }
+			if(new_buffer == NULL) {
+				free(data);
+				return (ShellInputResult){ .type = ShellInputResultTypeError,
+					                       .data = { .error = TSTR_LIT(
+					                                     "OOM in input buffer allocation") } };
+			}
 
-      current_buffer_start =
-          new_buffer + buffer_offset + (SHELL_INPUT_BUFFER_SIZE);
-      data = new_buffer;
+			current_buffer_start = new_buffer + buffer_offset + (SHELL_INPUT_BUFFER_SIZE);
+			data = new_buffer;
 
-    } else {
-      // if the last byte is NOT a \n, we have a valid input but EOF, so after
-      // this command we are done
-      const char last_char = current_buffer_start[read_bytes - 1];
-      if (last_char != '\n') {
-        end = true;
-      }
-      break;
-    }
-  }
+		} else {
+			// if the last byte is NOT a \n, we have a valid input but EOF, so after
+			// this command we are done
+			const char last_char = current_buffer_start[read_bytes - 1];
+			if(last_char != '\n') {
+				end = true;
+			}
+			break;
+		}
+	}
 
-  tstr_view view = tstr_view_from(data);
+	tstr_view view = tstr_view_from(data);
 
-  if (tstr_view_ends_with(view, "\n")) {
-    view = tstr_sub(view, 0, view.len - 1);
-  }
+	if(tstr_view_ends_with(view, "\n")) {
+		view = tstr_sub(view, 0, view.len - 1);
+	}
 
-  return (ShellInputResult){
-      .type = ShellInputResultTypeOk,
-      .data = {.ok = {.data = view, .raw_data = data, .end = end}}};
+	return (ShellInputResult){ .type = ShellInputResultTypeOk,
+		                       .data = { .ok = { .data = view, .raw_data = data, .end = end } } };
 }
 #endif

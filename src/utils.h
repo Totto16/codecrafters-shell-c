@@ -12,33 +12,33 @@ extern "C" {
 // https://clang.llvm.org/docs/AttributeReference.html#nullability-attributes
 
 #if defined(__GNUC__) || defined(__clang__)
-#if defined(__clang__)
-#define NULLABLE _Nullable
-#define NON_NULLABLE _Nonnull
-#define NO_NULLABLE_INFO _Null_unspecified
-#else
-#define NULLABLE
-#define NON_NULLABLE
-#define NO_NULLABLE_INFO
-#endif
+	#if defined(__clang__)
+		#define NULLABLE _Nullable
+		#define NON_NULLABLE _Nonnull
+		#define NO_NULLABLE_INFO _Null_unspecified
+	#else
+		#define NULLABLE
+		#define NON_NULLABLE
+		#define NO_NULLABLE_INFO
+	#endif
 
-#define OUT_PARAM(type) type *NON_NULLABLE
-#define DEFAULT_PARAM(type) type *NO_NULLABLE_INFO
+	#define OUT_PARAM(type) type* NON_NULLABLE
+	#define DEFAULT_PARAM(type) type* NO_NULLABLE_INFO
 #elif defined(_MSC_VER)
-#define NULLABLE
-#define NON_NULLABLE
-#define NO_NULLABLE_INFO
+	#define NULLABLE
+	#define NON_NULLABLE
+	#define NO_NULLABLE_INFO
 
-#define OUT_PARAM(type) _Out_ type *
-#define DEFAULT_PARAM(type) type *
+	#define OUT_PARAM(type) _Out_ type*
+	#define DEFAULT_PARAM(type) type*
 
 #else
-#define NULLABLE
-#define NON_NULLABLE
-#define NO_NULLABLE_INFO
+	#define NULLABLE
+	#define NON_NULLABLE
+	#define NO_NULLABLE_INFO
 
-#define OUT_PARAM(type) type *
-#define DEFAULT_PARAM(type) type *
+	#define OUT_PARAM(type) type*
+	#define DEFAULT_PARAM(type) type*
 #endif
 
 #ifdef __cplusplus
@@ -50,12 +50,12 @@ extern "C" {
 #endif
 
 #if (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202000) || __cplusplus
-#define NODISCARD [[nodiscard]]
-#define MAYBE_UNUSED [[maybe_unused]]
+	#define NODISCARD [[nodiscard]]
+	#define MAYBE_UNUSED [[maybe_unused]]
 #else
-// see e.g. https://www.gnu.org/software/gnulib/manual/html_node/Attributes.html
-#define NODISCARD __attribute__((__warn_unused_result__))
-#define MAYBE_UNUSED __attribute__((__unused__))
+    // see e.g. https://www.gnu.org/software/gnulib/manual/html_node/Attributes.html
+	#define NODISCARD __attribute__((__warn_unused_result__))
+	#define MAYBE_UNUSED __attribute__((__unused__))
 #endif
 
 #define UNUSED(v) ((void)(v))
@@ -63,30 +63,28 @@ extern "C" {
 // cool trick from here:
 // https://stackoverflow.com/questions/777261/avoiding-unused-variables-warnings-when-using-assert-in-a-release-build
 #ifdef NDEBUG
-#define ASSERT(x) /* NOLINT(readability-identifier-naming) */                  \
-  do {                                                                         \
-    UNUSED((x));                                                               \
-  } while (false)
+	#define ASSERT(x) /* NOLINT(readability-identifier-naming) */ \
+		do { \
+			UNUSED((x)); \
+		} while(false)
 
-#undef assert
+	#undef assert
 
-#define UNREACHABLE()                                                          \
-  do {                                                                         \
-    fprintf(stderr, "[%s %s:%d]: UNREACHABLE\n", __func__, __FILE__,           \
-            __LINE__);                                                         \
-    exit(ExitCodeFailure);                                                     \
-  } while (false)
+	#define UNREACHABLE() \
+		do { \
+			fprintf(stderr, "[%s %s:%d]: UNREACHABLE\n", __func__, __FILE__, __LINE__); \
+			exit(ExitCodeFailure); \
+		} while(false)
 
 #else
-#include <assert.h>
+	#include <assert.h>
 
-#define ASSERT(x) assert(x)
+	#define ASSERT(x) assert(x)
 
-#define UNREACHABLE()                                                          \
-  do {                                                                         \
-    ASSERT(false &&                                                            \
-           "UNREACHABLE"); /* NOLINT(cert-dcl03-c,misc-static-assert) */       \
-  } while (false)
+	#define UNREACHABLE() \
+		do { \
+			ASSERT(false && "UNREACHABLE"); /* NOLINT(cert-dcl03-c,misc-static-assert) */ \
+		} while(false)
 
 #endif
 
