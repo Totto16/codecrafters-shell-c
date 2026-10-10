@@ -422,9 +422,14 @@ static const BuiltinCommand builtin_function_type = {
     .help = type_help,
 };
 
-// TODO:
 typedef struct {
-  int todo;
+  bool _unused : 1;
+} Monostate;
+
+#define MONOSTATE ((Monostate){._unused = 0})
+
+typedef struct {
+  Monostate _unused;
 } PwdData;
 
 static ShellParseArgumentsResult
@@ -433,7 +438,7 @@ pwd_parse_arguments(const ShellArguments *args) {
   // TODO: support options to pwd
 
   if (args->length == 0) {
-    PwdData pwd_data = {};
+    PwdData pwd_data = {._unused = MONOSTATE};
     RETURN_ARGUMENT(PwdData, pwd_data);
   }
   return (ShellParseArgumentsResult){
@@ -623,7 +628,7 @@ static const BuiltinCommand builtin_function_cd = {
 BuiltinCommand g_builtin_functions[] = {
     builtin_function_exit, builtin_function_echo, builtin_function_type,
     builtin_function_pwd,  builtin_function_cd,
-    // TODO: help
+    // TODO: add help builtin
 };
 
 static_assert(ARRAY_SIZE(g_builtin_functions) == BUILTIN_FUNCTION_COUNT,
@@ -699,7 +704,8 @@ static void free_shell_io_context(ShellIOContext *context) {
   free(context);
 }
 
-static ShellIO get_shell_io(const ShellRedirectSettings *const settings) {
+static ShellIO
+get_shell_io_in_current_context(const ShellRedirectSettings *const settings) {
 
   ShellIOContext *context = malloc(sizeof(ShellIOContext));
 
@@ -746,20 +752,124 @@ static ShellIO get_shell_io(const ShellRedirectSettings *const settings) {
   return io;
 }
 
-static void free_shell_io(ShellIO io) { free_shell_io_context(io.context); }
+static void free_shell_io_in_current_context(ShellIO io) {
+  free_shell_io_context(io.context);
+}
 
-ExitCode invoke_shell_builtin(ShellCommandBuiltin builtin, ShellHandle shell,
-                              const ShellRedirectSettings *settings) {
+ExitCode
+invoke_shell_builtin_in_current_context(const ShellCommandBuiltin *builtin,
+                                        ShellHandle shell,
+                                        const ShellRedirectSettings *settings) {
 
-  ShellIO io = get_shell_io(settings);
+  ShellIO io = get_shell_io_in_current_context(settings);
 
   if (io.context == NULL) {
     return ExitCodeImplementationError;
   }
 
-  ExitCode command_exit_code = builtin.command.invoke(builtin.args, shell, io);
+  ExitCode command_exit_code =
+      builtin->command.invoke(builtin->args, shell, io);
 
-  free_shell_io(io);
+  free_shell_io_in_current_context(io);
+
+  return command_exit_code;
+}
+
+static ShellIO
+get_shell_io_in_subshell(const ShellRedirectSettings *const settings,
+                         const ShellPipeSettings *pipe_settings) {
+
+  ShellIO io = get_shell_io_in_current_context(settings);
+
+  if (io.context == NULL) {
+    return io;
+  }
+
+  // NOTE: atm no shell builtin needs stdin, so we just drain it at the end
+
+  {
+    // handle pipe data
+
+    if (pipe_settings->stdout.is_pipe) {
+
+      ShellIOContext *ctx = io.context;
+
+      if (ctx->stdout.type == ShellIOContextStateTypeNormal) {
+        // if we already have a stdout redirection, we don't need a new one, so
+        // we just leave the existing one, otherwise we add the pipe fd as
+        // redirection
+        ctx->stdout = (ShellIOContextState){
+            .type = ShellIOContextStateTypeRedirect,
+            .data = {
+                .redirect = {
+                    .fd = pipe_settings->stdout.state.fds[PIPE_WRITE_END]}}};
+      }
+    }
+  }
+
+  // NOTE: we would need to close the unused stdout READ_END and the unused
+  // stdin WRITE_END, but the pipeline works in that way, that with pure
+  // builtins, that all run in one process, each step closes one part of the
+  // pipe, so closing it here would be wrong, and forked executables are going
+  // to close it in this process after the fork
+
+  return io;
+}
+
+#define DRAIN_BUFFER_SIZE 256
+
+static void drain_stream(int fd) {
+  uint8_t drain_buffer[DRAIN_BUFFER_SIZE];
+
+  while (true) {
+    ssize_t res = read(fd, drain_buffer, DRAIN_BUFFER_SIZE);
+
+    if (res <= 0) {
+      return;
+    }
+  }
+}
+
+static void free_shell_io_in_subshell(ShellIO io,
+                                      const ShellPipeSettings *pipe_settings) {
+
+  free_shell_io_in_current_context(io);
+
+  if (pipe_settings->stdin.is_pipe) {
+    // if we have a stdin pipe drain it's input and close the stdin pipe
+    int stdin_fd = pipe_settings->stdin.state.fds[PIPE_READ_END];
+
+    RETURNS_VOID drain_stream(stdin_fd);
+
+    // TODO: maybe report errors here
+    IGNORE_RESULT close(stdin_fd);
+  }
+
+  if (pipe_settings->stdout.is_pipe) {
+    // if we have a stdout pipe, close it
+    int stdout_fd = pipe_settings->stdin.state.fds[PIPE_WRITE_END];
+
+    // TODO: maybe report errors here
+    IGNORE_RESULT close(stdout_fd);
+  }
+}
+
+ExitCode
+invoke_shell_builtin_in_subshell(const ShellCommandBuiltin *builtin,
+                                 ShellHandle shell,
+                                 const ShellRedirectSettings *settings,
+                                 const ShellPipeSettings *pipe_settings) {
+
+  ShellIO io = get_shell_io_in_subshell(settings, pipe_settings);
+
+  if (io.context == NULL) {
+    return ExitCodeImplementationError;
+  }
+
+  ExitCode command_exit_code =
+      builtin->command.invoke(builtin->args, shell, io);
+
+  free_shell_io_in_subshell(io, pipe_settings);
 
   return command_exit_code;
 }
@@ -787,6 +897,5 @@ NODISCARD int shell_redirect_open_file(const ShellRedirectLocation *location) {
 
 void shell_redirect_close_file(int fd) {
   // TODO: maybe report errors here
-  int res = close(fd);
-  UNUSED(res);
+  IGNORE_RESULT close(fd);
 }

@@ -3,33 +3,41 @@
 #include "./command.h"
 #include "./file.h"
 
+TVEC_IMPLEMENT_VEC_TYPE(ShellCommand)
+
+TVEC_IMPLEMENT_VEC_TYPE(ShellCommandNotFound)
+
 typedef struct {
   ShellArgument program;
   ShellArguments args;
   ShellRedirectSettings settings;
 } ParsedProgram;
 
+TVEC_DEFINE_AND_IMPLEMENT_VEC_TYPE(ParsedProgram)
+
+typedef TVEC_TYPENAME(ParsedProgram) ParsedPrograms;
+
+typedef struct {
+  ParsedPrograms programs;
+} ParsedPipeline;
+
 typedef struct {
   bool is_ok;
   union {
-    ParsedProgram program;
+    ParsedPipeline pipeline;
     tstr error;
   } data;
-} ParsedProgramResult;
+} ParsedPipelineResult;
 
 #define ADD_SHELL_ARGUMENT(argument)                                           \
   do {                                                                         \
-    if (tstr_is_null(&program.program.parsed)) {                               \
-      program.program = (argument);                                            \
-    } else {                                                                   \
-      TvecResult res = TVEC_PUSH(ShellArgument, &(program.args), (argument));  \
+    TvecResult res = TVEC_PUSH(ShellArgument, &(arguments), (argument));       \
                                                                                \
-      if (res !=                                                               \
-          TvecResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/    \
-        return (ParsedProgramResult){                                          \
-            .is_ok = false,                                                    \
-            .data = {.error = TSTR_LIT("OOM error in internal parsing")}};     \
-      }                                                                        \
+    if (res !=                                                                 \
+        TvecResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/      \
+      return (ParsedPipelineResult){                                           \
+          .is_ok = false,                                                      \
+          .data = {.error = TSTR_LIT("OOM error in internal parsing")}};       \
     }                                                                          \
   } while (false)
 
@@ -39,7 +47,7 @@ typedef struct {
         tstr_cat_len(&(acc.str), (argument).data, (argument).len);             \
                                                                                \
     if (res != TStrResultOk) {                                                 \
-      return (ParsedProgramResult){                                            \
+      return (ParsedPipelineResult){                                           \
           .is_ok = false,                                                      \
           .data = {.error = TSTR_LIT("OOM error in internal parsing")}};       \
     }                                                                          \
@@ -76,20 +84,16 @@ typedef struct {
 
 #define RETURN_IMPL_ERROR(err)                                                 \
   do {                                                                         \
-    return (ParsedProgramResult){.is_ok = false,                               \
-                                 .data = {.error = TSTR_LIT(err)}};            \
+    return (ParsedPipelineResult){.is_ok = false,                              \
+                                  .data = {.error = TSTR_LIT(err)}};           \
                                                                                \
   } while (false)
 
 static void free_shell_argument(ShellArgument *arg);
 
-static ParsedProgramResult shell_parse_input(tstr_view input,
-                                             const ShellHandle shell) {
-  ParsedProgram program = {
-      .program = {.parsed = tstr_null(), .original = TSTR_TSV("")},
-      .args = TVEC_EMPTY(ShellArgument),
-      .settings = {.stdout = {.location = tstr_null(), .append = false},
-                   .stderr = {.location = tstr_null(), .append = false}}};
+static ParsedPipelineResult shell_parse_input(tstr_view input,
+                                              const ShellHandle shell) {
+  ShellArguments arguments = TVEC_EMPTY(ShellArgument);
 
   size_t start = 0;
   ParseState state = {.type = ParseStateTypeNormal, .data = {}};
@@ -119,7 +123,7 @@ static ParsedProgramResult shell_parse_input(tstr_view input,
                 .str = tstr_from("")};
           }
 
-          // the next chacrater is a whitespace, so skip it, until we either
+          // the next character is a whitespace, so skip it, until we either
           // encounter another character as end delimiter
           acc.raw.data += 1;
           acc.raw.len = 0;
@@ -268,7 +272,7 @@ static ParsedProgramResult shell_parse_input(tstr_view input,
         break;
       }
       default: {
-        return (ParsedProgramResult){
+        return (ParsedPipelineResult){
             .is_ok = false,
             .data = {.error = TSTR_LIT(
                          "[INTERNAL] wrong double quote parse state")}};
@@ -291,7 +295,7 @@ static ParsedProgramResult shell_parse_input(tstr_view input,
       break;
     }
     default: {
-      return (ParsedProgramResult){
+      return (ParsedPipelineResult){
           .is_ok = false,
           .data = {.error = TSTR_LIT("[INTERNAL] wrong parse state")}};
     }
@@ -300,19 +304,19 @@ static ParsedProgramResult shell_parse_input(tstr_view input,
 
   if (state.type != ParseStateTypeNormal) {
     if (state.type == ParseStateTypeSingleQuote) {
-      return (ParsedProgramResult){
+      return (ParsedPipelineResult){
           .is_ok = false,
           .data = {.error = TSTR_LIT("Unterminated single quote")}};
     } else if (state.type == ParseStateTypeDoubleQuote) {
-      return (ParsedProgramResult){
+      return (ParsedPipelineResult){
           .is_ok = false,
           .data = {.error = TSTR_LIT("Unterminated double quote")}};
     } else if (state.type == ParseStateTypeEscape) {
-      return (ParsedProgramResult){
+      return (ParsedPipelineResult){
           .is_ok = false,
           .data = {.error = TSTR_LIT("Unterminated escape sequence")}};
     } else {
-      return (ParsedProgramResult){
+      return (ParsedPipelineResult){
           .is_ok = false,
           .data = {.error = TSTR_LIT("[INTERNAL] wrong parse state")}};
     }
@@ -355,36 +359,51 @@ static ParsedProgramResult shell_parse_input(tstr_view input,
   // check for redirect settings, this is easier to do here, as it would get
   // complicated in the parse step
 
-  for (size_t i = 0; i < TVEC_LENGTH(ShellArgument, program.args); ++i) {
+  ParsedPipeline pipeline = {.programs = TVEC_EMPTY(ParsedProgram)};
 
-    ShellArgument *const arg =
-        TVEC_GET_AT_MUT(ShellArgument, &(program.args), i);
+  if (TVEC_LENGTH(ShellArgument, arguments) == 0) {
+    return (ParsedPipelineResult){.is_ok = true,
+                                  .data = {.pipeline = pipeline}};
+  }
+
+  ParsedProgram current_program = {
+      .program = {.parsed = tstr_null(), .original = TSTR_TSV("")},
+      .args = TVEC_EMPTY(ShellArgument),
+      .settings = {.stdout = {.location = tstr_null(), .append = false},
+                   .stderr = {.location = tstr_null(), .append = false}}};
+
+  for (size_t i = 0; i < TVEC_LENGTH(ShellArgument, arguments); ++i) {
+
+    ShellArgument *const arg = TVEC_GET_AT_MUT(ShellArgument, &(arguments), i);
 
     // check for supported redirections, use the original string, as quoted
     // strings are not valid
     ShellRedirectLocation *location = NULL;
     bool append = false;
+    bool pipe = false;
 
     if (tstr_view_eq(arg->original, ">") || tstr_view_eq(arg->original, "1>")) {
-      location = &program.settings.stdout;
+      location = &current_program.settings.stdout;
       append = false;
     } else if (tstr_view_eq(arg->original, "2>")) {
-      location = &program.settings.stderr;
+      location = &current_program.settings.stderr;
       append = false;
     } else if (tstr_view_eq(arg->original, ">>") ||
                tstr_view_eq(arg->original, "1>>")) {
-      location = &program.settings.stdout;
+      location = &current_program.settings.stdout;
       append = true;
     } else if (tstr_view_eq(arg->original, "2>>")) {
-      location = &program.settings.stderr;
+      location = &current_program.settings.stderr;
       append = true;
+    } else if (tstr_view_eq(arg->original, "|")) {
+      pipe = true;
     }
 
     if (location != NULL) {
 
       // check that we only have one redirection per program per output stream
       if (!tstr_is_null(&(location->location))) {
-        return (ParsedProgramResult){
+        return (ParsedPipelineResult){
             .is_ok = false,
             .data = {
                 .error = TSTR_LIT(
@@ -392,14 +411,14 @@ static ParsedProgramResult shell_parse_input(tstr_view input,
       }
 
       // check that we have an argument
-      if (i >= TVEC_LENGTH(ShellArgument, program.args) - 1) {
-        return (ParsedProgramResult){
+      if (i >= TVEC_LENGTH(ShellArgument, arguments) - 1) {
+        return (ParsedPipelineResult){
             .is_ok = false,
             .data = {.error = TSTR_LIT("Unterminated redirection")}};
       }
 
       ShellArgument *const next_arg =
-          TVEC_GET_AT_MUT(ShellArgument, &(program.args), i + 1);
+          TVEC_GET_AT_MUT(ShellArgument, &(arguments), i + 1);
 
       // resolve it to an absolute path, set the location
       {
@@ -438,22 +457,97 @@ static ParsedProgramResult shell_parse_input(tstr_view input,
         *location = (ShellRedirectLocation){.location = path, .append = append};
       }
 
-      // NOTE: remove those two value from the array, we are iterating over it,
-      //  so this has to be done correctly
+      // NOTE: free these two arguments, they are no longer needed, we don't
+      // need to remove them from the array, as the array is freed at the end
+      // anyways
 
       free_shell_argument(arg);
       free_shell_argument(next_arg);
 
-      TVEC_REMOVE(ShellArgument, &(program.args), i + 1);
-      TVEC_REMOVE(ShellArgument, &(program.args), i);
+    } else if (pipe) {
 
-      // NOTE: we can do --i, even if we underflow, as we overflow right into it
-      // again
-      --i;
+      // we have a pipe, assert that we have a valid program before it, than add
+      // it to the pipeline, and clear out the current program
+
+      if (!tstr_is_null(&(current_program.program.parsed))) {
+        return (ParsedPipelineResult){
+            .is_ok = false,
+            .data = {.error = TSTR_LIT("a pipeline needs a program and can't "
+                                       "follow another pipeline")}};
+      }
+
+      TvecResult res =
+          TVEC_PUSH(ParsedProgram, &(pipeline.programs), current_program);
+
+      if (res !=
+          TvecResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/
+        return (ParsedPipelineResult){
+            .is_ok = false,
+            .data = {.error = TSTR_LIT("OOM error in internal parsing")}};
+      }
+
+      // NOTE: free this arguments, it is no longer needed, we don't
+      // need to remove it from the array, as the array is freed at the end
+      // anyways
+
+      free_shell_argument(arg);
+
+      // we moved this out
+      current_program = (ParsedProgram){
+          .program = {.parsed = tstr_null(), .original = TSTR_TSV("")},
+          .args = TVEC_EMPTY(ShellArgument),
+          .settings = {.stdout = {.location = tstr_null(), .append = false},
+                       .stderr = {.location = tstr_null(), .append = false}}};
+
+    } else {
+      // append the argument to the end
+
+      if (tstr_is_null(&current_program.program.parsed)) {
+        current_program.program = *arg;
+      } else {
+        TvecResult res =
+            TVEC_PUSH(ShellArgument, &(current_program.args), *arg);
+
+        if (res !=
+            TvecResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/
+          return (ParsedPipelineResult){
+              .is_ok = false,
+              .data = {.error = TSTR_LIT("OOM error in internal parsing")}};
+        }
+      }
     }
   }
 
-  return (ParsedProgramResult){.is_ok = true, .data = {.program = program}};
+  // we moved all the arguments or already freed them, so we need to only free
+  // the vector itself
+  TVEC_FREE(ShellArgument, &arguments);
+
+  if (tstr_is_null(&(current_program.program.parsed))) {
+    return (ParsedPipelineResult){
+        .is_ok = false,
+        .data = {.error =
+                     TSTR_LIT("missing program at the end of a pipeline")}};
+  } else {
+    // we add the last program to the pipeline
+
+    TvecResult res =
+        TVEC_PUSH(ParsedProgram, &(pipeline.programs), current_program);
+
+    if (res != TvecResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/
+      return (ParsedPipelineResult){
+          .is_ok = false,
+          .data = {.error = TSTR_LIT("OOM error in internal parsing")}};
+    }
+
+    // we moved this out
+    current_program = (ParsedProgram){
+        .program = {.parsed = tstr_null(), .original = TSTR_TSV("")},
+        .args = TVEC_EMPTY(ShellArgument),
+        .settings = {.stdout = {.location = tstr_null(), .append = false},
+                     .stderr = {.location = tstr_null(), .append = false}}};
+  }
+
+  return (ParsedPipelineResult){.is_ok = true, .data = {.pipeline = pipeline}};
 }
 
 static void free_shell_argument(ShellArgument *arg) {
@@ -488,58 +582,78 @@ static void free_parsed_program(ParsedProgram *program) {
   free_shell_redirect_settings(&(program->settings));
 }
 
-void free_shell_command(ShellCommand *command) {
+static void free_shell_command_executable(ShellCommandExecutable *executable) {
+  tstr_free(&(executable->invoke_name));
+  tstr_free(&(executable->path));
+}
+
+static void free_shell_command(ShellCommand *command) {
   free_shell_arguments(&(command->args));
   free_shell_redirect_settings(&(command->settings));
+
+  switch (command->type) {
+  case ShellCommandTypeBuiltin: {
+    //
+    break;
+  }
+  case ShellCommandTypeExecutable: {
+    free_shell_command_executable(&(command->data.executable));
+
+    break;
+  }
+  default: {
+    //
+    break;
+  }
+  }
 }
 
-void free_shell_command_not_found(ShellCommandNotFound *found) {
-  tstr_free(&(found->name));
+void free_shell_pipeline(ShellParseDataPipeline *pipeline) {
+  for (size_t i = 0; i < TVEC_LENGTH(ShellCommand, pipeline->commands); ++i) {
+
+    ShellCommand *arg = TVEC_GET_AT_MUT(ShellCommand, &(pipeline->commands), i);
+
+    free_shell_command(arg);
+  }
+
+  TVEC_FREE(ShellCommand, &(pipeline->commands));
 }
 
-ShellParseDataResult shell_parse_data(tstr_view input,
-                                      const ShellHandle shell) {
+static void free_shell_command_not_found(ShellCommandNotFound *not_found) {
+  tstr_free(&(not_found->name));
+}
 
-  ParsedProgramResult program_res = shell_parse_input(input, shell);
+void free_shell_commands_not_found(ShellCommandsNotFound *not_found) {
+  for (size_t i = 0; i < TVEC_LENGTH(ShellCommandNotFound, not_found->array);
+       ++i) {
 
-  if (!program_res.is_ok) {
-    // move program_res.data.error ownership to the ShellParseDataResult struct
-    return (ShellParseDataResult){.type = ShellParseDataResultTypeError,
-                                  .data = {.error = program_res.data.error}};
+    ShellCommandNotFound *arg =
+        TVEC_GET_AT_MUT(ShellCommandNotFound, &(not_found->array), i);
+
+    free_shell_command_not_found(arg);
   }
 
-  ParsedProgram program = program_res.data.program;
+  TVEC_FREE(ShellCommandNotFound, &(not_found->array));
+}
 
-  if (tstr_len(&program.program.parsed) == 0) {
-    return (ShellParseDataResult){.type = ShellParseDataResultEmpty,
-                                  .data = {}};
-  }
+typedef enum : uint8_t {
+  ShellProcessProgramResultTypeError = 0,
+  ShellProcessProgramResultTypeCommandNotFound,
+  ShellProcessProgramResultTypeOk,
+} ShellProcessProgramResultType;
 
-  // TODO: hide behind some sort of set +d or similar debug option
-  if (false) {
-    int res = fprintf(stderr, "Arguments:\n");
-    if (res < 0) {
-      return (ShellParseDataResult){.type = ShellParseDataResultTypeError,
-                                    .data = {.error = TSTR_LIT("IO Error")}};
-    }
+typedef struct {
+  ShellProcessProgramResultType type;
+  union {
+    ShellCommand ok;
+    ShellCommandNotFound not_found;
+    tstr error;
+  } data;
+} ShellProcessProgramResult;
 
-    for (size_t i = 0; i < TVEC_LENGTH(ShellArgument, program.args); ++i) {
-
-      const ShellArgument *const arg =
-          TVEC_GET_AT(ShellArgument, &(program.args), i);
-
-      int res =
-          fprintf(stderr, "<%zu>\n  value: " TSTR_FMT "\n  raw: " TSTR_FMT "\n",
-                  i, TSTR_FMT_ARGS(arg->parsed), TSV_FMT_ARGS(arg->original));
-      if (res < 0) {
-        return (ShellParseDataResult){.type = ShellParseDataResultTypeError,
-                                      .data = {.error = TSTR_LIT("IO Error")}};
-      }
-    }
-  }
-
-  const tstr *const prog_name = &program.program.parsed;
-  const ShellArguments *const prog_args = &program.args;
+ShellProcessProgramResult shell_process_program(ParsedProgram *program) {
+  const tstr *const prog_name = &(program->program.parsed);
+  const ShellArguments *const prog_args = &(program->args);
 
   CommandType command_type = determine_command_type(tstr_as_view(prog_name));
 
@@ -551,32 +665,34 @@ ShellParseDataResult shell_parse_data(tstr_view input,
         builtin_command.validator.parse(prog_args);
 
     if (!args_res.is_ok) {
-      free_parsed_program(&program);
+      free_parsed_program(program);
 
       // move args_res.data.error ownership to the ShellParseDataResult struct
-      return (ShellParseDataResult){.type = ShellParseDataResultTypeError,
-                                    .data = {.error = args_res.data.error}};
+      return (ShellProcessProgramResult){
+          .type = ShellProcessProgramResultTypeError,
+          .data = {.error = args_res.data.error}};
     }
 
     if (args_res.data.args == NULL) {
-      free_parsed_program(&program);
+      free_parsed_program(program);
 
-      return (ShellParseDataResult){
-          .type = ShellParseDataResultTypeError,
+      return (ShellProcessProgramResult){
+          .type = ShellProcessProgramResultTypeError,
           .data = {.error = TSTR_LIT("[INTERNAL] Parse error")}};
     }
 
     ShellCommandBuiltin builtin_args = {.command = builtin_command,
                                         .args = args_res.data.args};
 
-    free_shell_argument(&program.program);
+    free_shell_argument(&(program->program));
 
-    return (ShellParseDataResult){
-        .type = ShellParseDataResultTypeCommand,
-        .data = {.command = {.type = ShellCommandTypeBuiltin,
-                             .data = {.builtin = builtin_args},
-                             .args = program.args,
-                             .settings = program.settings}}};
+    ShellCommand command = {.type = ShellCommandTypeBuiltin,
+                            .data = {.builtin = builtin_args},
+                            .args = program->args,
+                            .settings = program->settings};
+
+    return (ShellProcessProgramResult){.type = ShellProcessProgramResultTypeOk,
+                                       .data = {.ok = command}};
   }
   case CommandTypeTypeExecutable: {
 
@@ -584,18 +700,19 @@ ShellParseDataResult shell_parse_data(tstr_view input,
     // so no need to free that
     const ShellCommandExecutable executable = {
         .path = command_type.data.executable.path,
-        .invoke_name = tstr_dup(&program.program.parsed),
+        .invoke_name = tstr_dup(&(program->program.parsed)),
 
     };
 
-    free_shell_argument(&program.program);
+    free_shell_argument(&(program->program));
 
-    return (ShellParseDataResult){
-        .type = ShellParseDataResultTypeCommand,
-        .data = {.command = {.type = ShellCommandTypeExecutable,
-                             .data = {.executable = executable},
-                             .args = program.args,
-                             .settings = program.settings}}};
+    ShellCommand command = {.type = ShellCommandTypeExecutable,
+                            .data = {.executable = executable},
+                            .args = program->args,
+                            .settings = program->settings};
+
+    return (ShellProcessProgramResult){.type = ShellProcessProgramResultTypeOk,
+                                       .data = {.ok = command}};
   }
   default: {
     // TODO: report internal error
@@ -603,10 +720,102 @@ ShellParseDataResult shell_parse_data(tstr_view input,
   }
   }
 
-  free_shell_arguments(&program.args);
-  free_shell_redirect_settings(&program.settings);
+  free_shell_arguments(&program->args);
+  free_shell_redirect_settings(&program->settings);
 
-  return (ShellParseDataResult){
-      .type = ShellParseDataResultTypeCommandNotFound,
-      .data = {.command_not_found = {.name = program.program.parsed}}};
+  ShellCommandNotFound not_found = {.name = program->program.parsed};
+
+  return (ShellProcessProgramResult){
+      .type = ShellProcessProgramResultTypeCommandNotFound,
+      .data = {.not_found = not_found}};
+}
+
+ShellParseDataResult shell_parse_data(tstr_view input,
+                                      const ShellHandle shell) {
+
+  ParsedPipelineResult program_res = shell_parse_input(input, shell);
+
+  if (!program_res.is_ok) {
+    // move program_res.data.error ownership to the ShellParseDataResult struct
+    return (ShellParseDataResult){.type = ShellParseDataResultTypeError,
+                                  .data = {.error = program_res.data.error}};
+  }
+
+  ParsedPipeline parsed_pipeline = program_res.data.pipeline;
+
+  if (TVEC_LENGTH(ParsedProgram, parsed_pipeline.programs) == 0) {
+    return (ShellParseDataResult){.type = ShellParseDataResultTypeEmpty,
+                                  .data = {}};
+  }
+
+  ShellCommandsNotFound not_found = {.array = TVEC_EMPTY(ShellCommandNotFound)};
+  ShellParseDataPipeline pipeline = {.commands = TVEC_EMPTY(ShellCommand)};
+
+  for (size_t i = 0; i < TVEC_LENGTH(ParsedProgram, parsed_pipeline.programs);
+       ++i) {
+
+    ParsedProgram *const arg =
+        TVEC_GET_AT_MUT(ParsedProgram, &(parsed_pipeline.programs), i);
+
+    ShellProcessProgramResult process_res = shell_process_program(arg);
+
+    switch (process_res.type) {
+    case ShellProcessProgramResultTypeOk: {
+      TvecResult res =
+          TVEC_PUSH(ShellCommand, &pipeline.commands, process_res.data.ok);
+
+      if (res !=
+          TvecResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/
+        return (ShellParseDataResult){
+            .type = ShellParseDataResultTypeError,
+            .data = {.error = TSTR_LIT("OOM error in internal parsing")}};
+      }
+      break;
+    }
+    case ShellProcessProgramResultTypeCommandNotFound: {
+      TvecResult res = TVEC_PUSH(ShellCommandNotFound, &not_found.array,
+                                 process_res.data.not_found);
+
+      if (res !=
+          TvecResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/
+        return (ShellParseDataResult){
+            .type = ShellParseDataResultTypeError,
+            .data = {.error = TSTR_LIT("OOM error in internal parsing")}};
+      }
+      break;
+    }
+    case ShellProcessProgramResultTypeError: {
+      return (ShellParseDataResult){
+          .type = ShellParseDataResultTypeError,
+          .data = {.error = TSTR_LIT("[INTERNAL] wrong error type")}};
+    }
+    default: {
+      // TODO: collect errors much like command not found, notz just report one
+      return (ShellParseDataResult){.type = ShellParseDataResultTypeError,
+                                    .data = {.error = process_res.data.error}};
+    }
+    }
+  }
+
+  // we moved all the arguments or already freed them, so we need to only free
+  // the vector itself
+  TVEC_FREE(ParsedProgram, &parsed_pipeline.programs);
+
+  // NOTE: we report an error with all commands that are not found, when at
+  // least one command in the pipeline can't be found, bash stills runs the
+  // parts of the found commands, we do NOT
+  if (TVEC_LENGTH(ShellCommandNotFound, not_found.array) != 0) {
+    // we found some errors, return those
+
+    free_shell_pipeline(&pipeline);
+
+    return (ShellParseDataResult){.type =
+                                      ShellParseDataResultTypeCommandsNotFound,
+                                  .data = {.not_found = not_found}};
+  }
+
+  free_shell_commands_not_found(&not_found);
+
+  return (ShellParseDataResult){.type = ShellParseDataResultTypePipeline,
+                                .data = {.pipeline = pipeline}};
 }

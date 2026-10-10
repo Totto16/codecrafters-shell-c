@@ -153,52 +153,93 @@ static void free_execv_args(char **const args) {
   free(args);
 }
 
-ExitCode invoke_executable(const tstr *path, const tstr *const invoke_name,
-                           const ShellArguments *arguments,
-                           const ShellRedirectSettings *settings) {
-  // NOTE: this is synchronous, so no need to lock resources (e.g. stdout,
-  // stderr)
-
+static ShellExecuteAsyncResult
+invoke_executable_impl(const tstr *path, const tstr *const invoke_name,
+                       const ShellArguments *arguments,
+                       const ShellRedirectSettings *settings,
+                       const ShellPipeSettings *pipe_settings) {
   pid_t pid = fork();
 
   if (pid == -1) {
-    // TODO: print execute error
-    return ExitCodeGenericError;
+
+    return (ShellExecuteAsyncResult){.is_ok = false,
+                                     .data = {.error = TSTR_LIT("fork error")}};
   }
 
   if (pid == 0) {
     // Child process: execute the program
 
+    bool stdout_redirected = false;
+
     if (shell_redirect_is_set(&(settings->stdout))) {
       int fd = shell_redirect_open_file(&settings->stdout);
 
       if (fd < 0) {
-        return ExitCodeImplementationError;
+        // TODO: report error;
+        exit(ExitCodeImplementationError);
       }
 
       int res = dup2(fd, STDOUT_FILENO);
 
       if (res < 0) {
-        return ExitCodeImplementationError;
+        // TODO: report error;
+        exit(ExitCodeImplementationError);
       }
 
       shell_redirect_close_file(fd);
+      stdout_redirected = true;
     }
 
-    if (!tstr_is_null(&(settings->stderr.location))) {
+    if (shell_redirect_is_set(&(settings->stderr))) {
       int fd = shell_redirect_open_file(&settings->stderr);
 
       if (fd < 0) {
-        return ExitCodeImplementationError;
+        // TODO: report error;
+        exit(ExitCodeImplementationError);
       }
 
       int res = dup2(fd, STDERR_FILENO);
 
       if (res < 0) {
-        return ExitCodeImplementationError;
+        // TODO: report error;
+        exit(ExitCodeImplementationError);
       }
 
       shell_redirect_close_file(fd);
+    }
+
+    // handle pipes
+
+    if (pipe_settings->stdout.is_pipe) {
+      if (stdout_redirected) {
+        // if we already have a stdout redirection, we don't need a new one, so
+        // we just leave the existing one, otherwise we add the pipe fd as
+        // redirection
+
+        int res = dup2(pipe_settings->stdout.state.fds[PIPE_WRITE_END],
+                       STDOUT_FILENO);
+
+        if (res < 0) {
+          // TODO: report error;
+          exit(ExitCodeImplementationError);
+        }
+
+        // close the unnecessary READ_END
+        IGNORE_RESULT close(pipe_settings->stdout.state.fds[PIPE_READ_END]);
+      }
+    }
+
+    if (pipe_settings->stdin.is_pipe) {
+      int res =
+          dup2(pipe_settings->stdin.state.fds[PIPE_READ_END], STDIN_FILENO);
+
+      if (res < 0) {
+        // TODO: report error;
+        exit(ExitCodeImplementationError);
+      }
+
+      // close the unnecessary WRITE_END
+      IGNORE_RESULT close(pipe_settings->stdout.state.fds[PIPE_WRITE_END]);
     }
 
     const size_t arguments_length = TVEC_LENGTH(ShellArgument, *arguments);
@@ -221,27 +262,64 @@ ExitCode invoke_executable(const tstr *path, const tstr *const invoke_name,
     int exec_res = execv(tstr_cstr(path), args);
 
     // Only reached if exec fails
-    // TODO: print execute error
     free_execv_args(args);
     UNUSED(exec_res);
+
+    // TODO: print execute error
+    exit(ExitCodeImplementationError);
+  }
+
+  // Parent process: return the child pid
+
+  return (ShellExecuteAsyncResult){.is_ok = true,
+                                   .data = {.handle = {.child_pid = pid}}};
+}
+
+ExitCode invoke_executable_synchronous(const tstr *path,
+                                       const tstr *const invoke_name,
+                                       const ShellArguments *arguments,
+                                       const ShellRedirectSettings *settings) {
+
+  const ShellPipeSettings pipe_settings = {
+      .stdin = {.is_pipe = false, .state = {.fds = {0, 0}}},
+      .stdout = {.is_pipe = false, .state = {.fds = {0, 0}}},
+  };
+
+  ShellExecuteAsyncResult result = invoke_executable_impl(
+      path, invoke_name, arguments, settings, &pipe_settings);
+
+  if (!result.is_ok) {
+    // TODO. report the exact error somehow
+    tstr_free(&(result.data.error));
     return ExitCodeGenericError;
   }
 
-  // Parent process: wait for child
+  auto handle = result.data.handle;
+
   int status;
-  int res = waitpid(pid, &status, 0);
+  int res = waitpid(handle.child_pid, &status, 0);
   if (res < 0) {
     // TODO: print execute error
-    return ExitCodeIOError;
+    return ExitCodeImplementationError;
   }
-
-  // TODO: should we return if the process exited with a signal?
 
   if (WIFEXITED(status)) {
     uint8_t exit_status = WEXITSTATUS(status);
     return exit_status;
+  } else if (WIFSIGNALED(status)) {
+    uint8_t signal_number = WTERMSIG(status);
+    return signal_number;
   }
 
   // TODO: print execute error
   return ExitCodeGenericError;
+}
+
+NODISCARD ShellExecuteAsyncResult invoke_executable_async(
+    const tstr *path, const tstr *invoke_name, const ShellArguments *arguments,
+    const ShellRedirectSettings *settings,
+    const ShellPipeSettings *pipe_settings) {
+
+  return invoke_executable_impl(path, invoke_name, arguments, settings,
+                                pipe_settings);
 }

@@ -2,6 +2,8 @@
 
 #define RETURNS_VOID (void)
 
+#define IGNORE_RESULT (void)
+
 #ifdef __cplusplus
 extern "C" {
 #endif

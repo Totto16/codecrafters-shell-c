@@ -6,6 +6,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <pthread.h>
+#include <sys/wait.h>
 #include <tstr/tstr.h>
 
 #include "./builtins.h"
@@ -22,10 +24,14 @@ typedef struct {
 typedef struct {
   bool alive;
   ExitCode result;
+  tstr cwd;
+} ShellInstanceState;
+
+typedef struct {
   CommandState command_state;
   const bool interactive;
-  tstr cwd;
   ShellInputState input_state;
+  ShellInstanceState global;
 } ShellState;
 
 static tstr shell_get_prompt(const ShellState *const state) {
@@ -60,7 +66,7 @@ static void shell_print_error(const char *error) {
   shell_print_errors(errors, ARRAY_SIZE(errors));
 }
 
-static void shell_exit(ShellState *state, ExitCode code) {
+static void shell_exit(ShellInstanceState *state, ExitCode code) {
   if (state->alive) {
     // ignore duplicate exits, the first one sets the code, the second one is
     // ignore (eg if we call "exit 22" and get EOF after that, it should result
@@ -70,39 +76,33 @@ static void shell_exit(ShellState *state, ExitCode code) {
   }
 }
 
-static void set_command_exit_code(ShellState *state, ExitCode code) {
-  state->command_state.exit_code = code;
+static void shell_global_exit(ShellState *state, ExitCode code) {
+  shell_exit(&(state->global), code);
 }
 
-static void free_shell_command_executable(ShellCommandExecutable *executable) {
-  tstr_free(&(executable->invoke_name));
-  tstr_free(&(executable->path));
-}
-
-static void shell_virtual_fn_exit(shell_virtual_context ctx,
-                                  const ExitData *data) {
+static void shell_virtual_fn_sync_exit(shell_virtual_context ctx,
+                                       const ExitData *data) {
 
   ShellState *state = ctx;
 
   if (!data->has_code) {
 
-    RETURNS_VOID shell_exit(state, state->command_state.exit_code);
+    RETURNS_VOID shell_global_exit(state, state->command_state.exit_code);
   } else {
-    RETURNS_VOID shell_exit(state, data->code);
+    RETURNS_VOID shell_global_exit(state, data->code);
   }
 }
 
 static tstr_view
-shell_virtual_fn_get_current_working_directory(shell_virtual_context ctx) {
+shell_virtual_fn_sync_get_current_working_directory(shell_virtual_context ctx) {
 
   ShellState *state = ctx;
 
-  return tstr_as_view(&(state->cwd));
+  return tstr_as_view(&(state->global.cwd));
 }
 
-static bool
-shell_virtual_fn_set_current_working_directory(shell_virtual_context ctx,
-                                               const tstr *normalized_cwd) {
+static bool shell_virtual_fn_sync_set_current_working_directory(
+    shell_virtual_context ctx, const tstr *normalized_cwd) {
 
   ShellState *state = ctx;
 
@@ -123,19 +123,89 @@ shell_virtual_fn_set_current_working_directory(shell_virtual_context ctx,
     return false;
   }
 
-  tstr_free(&(state->cwd));
-  state->cwd = tstr_dup(normalized_cwd);
+  tstr_free(&(state->global.cwd));
+  state->global.cwd = tstr_dup(normalized_cwd);
 
   return true;
 }
 
-static ShellVirtualFunctions g_shell_functions = {
-    .exit = shell_virtual_fn_exit,
+static ShellVirtualFunctions g_shell_functions_synchronous = {
+    .exit = shell_virtual_fn_sync_exit,
     .get_current_working_directory =
-        shell_virtual_fn_get_current_working_directory,
+        shell_virtual_fn_sync_get_current_working_directory,
     .set_current_working_directory =
-        shell_virtual_fn_set_current_working_directory,
+        shell_virtual_fn_sync_set_current_working_directory,
 };
+
+#define SHELL_HANDLE_SYNCHRONOUS(ctx)                                          \
+  {.context = (ctx), .function = g_shell_functions_synchronous};
+
+typedef struct {
+  ShellInstanceState instance;
+} ShellSubShellState;
+
+static void shell_virtual_fn_subshell_exit(shell_virtual_context ctx,
+                                           const ExitData *data) {
+
+  ShellSubShellState *state = ctx;
+
+  if (!data->has_code) {
+    // TODO: add this to the instance state, once we support "&&" "||" and ";"
+    // alias multiple commands in one subshell
+    // RETURNS_VOID shell_exit(state, state->command_state.exit_code);
+    RETURNS_VOID shell_exit(&(state->instance), ExitCodeSuccess);
+  } else {
+    RETURNS_VOID shell_exit(&(state->instance), data->code);
+  }
+}
+
+static tstr_view shell_virtual_fn_subshell_get_current_working_directory(
+    shell_virtual_context ctx) {
+
+  ShellSubShellState *state = ctx;
+
+  return tstr_as_view(&(state->instance.cwd));
+}
+
+static bool shell_virtual_fn_subshell_set_current_working_directory(
+    shell_virtual_context ctx, const tstr *normalized_cwd) {
+
+  ShellSubShellState *state = ctx;
+
+  if (!path_is_absolute(tstr_as_view(normalized_cwd))) {
+    return false;
+  }
+
+  if (!path_is_normalized(tstr_as_view(normalized_cwd))) {
+    return false;
+  }
+
+  if (!path_exists_and_is_dir(tstr_as_view(normalized_cwd))) {
+    return false;
+  }
+
+  int res = chdir(tstr_cstr(normalized_cwd));
+  if (res < 0) {
+    return false;
+  }
+
+  tstr_free(&(state->instance.cwd));
+  state->instance.cwd = tstr_dup(normalized_cwd);
+
+  return true;
+}
+
+static ShellVirtualFunctions g_shell_functions_subshell = {
+    .exit = shell_virtual_fn_subshell_exit,
+    .get_current_working_directory =
+        shell_virtual_fn_subshell_get_current_working_directory,
+    .set_current_working_directory =
+        shell_virtual_fn_subshell_set_current_working_directory,
+};
+
+#define SHELL_HANDLE_SUBSHELL(ctx)                                             \
+  {.context = (ctx), .function = g_shell_functions_subshell};
+
 #if SHELL_USE_EDIT_LIBRARY == 0
 static void shell_cleanup_old_prompt(ShellState *state) {
   tstr_free(&state->input_state.last_prompt_string);
@@ -181,7 +251,7 @@ static bool shell_print_prompt(ShellState *state) {
     prompt = shell_get_prompt(state);
 
     if (tstr_is_null(&prompt)) {
-      RETURNS_VOID shell_exit(state, ExitCodeGenericError);
+      RETURNS_VOID shell_global_exit(state, ExitCodeGenericError);
 
       RETURNS_VOID shell_print_error("[INTERNAL] prompt print error");
       return false;
@@ -207,11 +277,425 @@ static bool shell_process_input_state(ShellState *state) {
 }
 #endif
 
+static void set_command_exit_code(ShellState *state, ExitCode code) {
+  state->command_state.exit_code = code;
+}
+
+static void shell_execute_command_synchronous(const ShellCommand *const command,
+                                              ShellState *state) {
+  switch (command->type) {
+  case ShellCommandTypeBuiltin: {
+    const ShellCommandBuiltin *builtin = &(command->data.builtin);
+
+    ShellHandle shell_handle = SHELL_HANDLE_SYNCHRONOUS(state);
+
+    ExitCode command_exit_code = invoke_shell_builtin_in_current_context(
+        builtin, shell_handle, &(command->settings));
+    set_command_exit_code(state, command_exit_code);
+
+    builtin->command.validator.free(builtin->args);
+
+    break;
+  }
+  case ShellCommandTypeExecutable: {
+    const ShellCommandExecutable executable = command->data.executable;
+
+    ExitCode command_exit_code =
+        invoke_executable_synchronous(&executable.path, &executable.invoke_name,
+                                      &(command->args), &(command->settings));
+    set_command_exit_code(state, command_exit_code);
+
+    break;
+  }
+  default: {
+    RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+    RETURNS_VOID shell_print_error("[INTERNAL] Invalid command type");
+    break;
+  }
+  }
+}
+
+typedef struct {
+  ShellSubShellState state;
+  const ShellCommandBuiltin *builtin;
+  const ShellRedirectSettings *settings;
+  const ShellPipeSettings *pipe_settings;
+} ShellSubShellThreadState;
+
+static void *shell_subshell_builtin_thread_entry(void *arg) {
+
+  ShellSubShellThreadState *state = arg;
+
+  ShellSubShellState *subshell_state = &(state->state);
+
+  ShellHandle shell_handle = SHELL_HANDLE_SUBSHELL(subshell_state);
+
+  ExitCode command_exit_code = invoke_shell_builtin_in_subshell(
+      state->builtin, shell_handle, state->settings, state->pipe_settings);
+
+  shell_exit(&(subshell_state->instance), command_exit_code);
+
+  state->builtin->command.validator.free(state->builtin->args);
+  return NULL;
+}
+
+typedef enum : uint8_t {
+  ShellCommandSynchronizationTypeError = 0,
+  ShellCommandSynchronizationTypeThread,
+  ShellCommandSynchronizationTypeProcess,
+} ShellCommandSynchronizationType;
+
+typedef struct {
+  pthread_t thread_id;
+  ShellSubShellThreadState *state;
+} ShellCommandSynchronizationThread;
+
+typedef struct {
+  ShellExecuteAsyncHandle handle;
+} ShellCommandSynchronizationProcess;
+
+typedef struct {
+  ShellCommandSynchronizationType type;
+  union {
+    tstr error;
+    ShellCommandSynchronizationThread thread;
+    ShellCommandSynchronizationProcess process;
+  } data;
+} ShellCommandSynchronization;
+
+static void shell_destroy_instance_state(ShellInstanceState *state) {
+
+  tstr_free(&(state->cwd));
+}
+
+static void free_sub_shell_thread_state(ShellSubShellThreadState *state) {
+
+  shell_destroy_instance_state(&state->state.instance);
+
+  free(state);
+}
+
+static void
+shell_execute_command_in_subshell(const ShellCommand *const command,
+                                  const ShellState *state,
+                                  const ShellPipeSettings *pipe_settings,
+                                  ShellCommandSynchronization *result) {
+  switch (command->type) {
+  case ShellCommandTypeBuiltin: {
+    const ShellCommandBuiltin *builtin = &(command->data.builtin);
+
+    ShellSubShellThreadState *thread_state =
+        malloc(sizeof(ShellSubShellThreadState));
+
+    if (thread_state == NULL) {
+      *result = (ShellCommandSynchronization){
+          .type = ShellCommandSynchronizationTypeError,
+          .data = {.error = TSTR_LIT("OOM error")}};
+      return;
+    }
+
+    tstr cwd = tstr_dup(&state->global.cwd);
+
+    if (tstr_is_null(&cwd)) {
+      *result = (ShellCommandSynchronization){
+          .type = ShellCommandSynchronizationTypeError,
+          .data = {.error = TSTR_LIT("cwd get error")}};
+      return;
+    }
+
+    *thread_state =
+        (ShellSubShellThreadState){.state =
+                                       {
+                                           .instance =
+                                               {
+                                                   .alive = true,
+                                                   .result = ExitCodeSuccess,
+                                                   .cwd = cwd,
+                                               },
+                                       },
+                                   .builtin = builtin,
+                                   .settings = &(command->settings),
+                                   .pipe_settings = pipe_settings};
+
+    pthread_t thread_id;
+
+    int res = pthread_create(&thread_id, NULL,
+                             shell_subshell_builtin_thread_entry, thread_state);
+
+    if (res != 0) {
+      *result = (ShellCommandSynchronization){
+          .type = ShellCommandSynchronizationTypeError,
+          .data = {.error = TSTR_LIT("pthread error")}};
+      return;
+    }
+
+    *result = (ShellCommandSynchronization){
+        .type = ShellCommandSynchronizationTypeThread,
+        .data = {.thread = {.thread_id = thread_id, .state = thread_state}}};
+    return;
+  }
+  case ShellCommandTypeExecutable: {
+    const ShellCommandExecutable executable = command->data.executable;
+
+    ShellExecuteAsyncResult res = invoke_executable_async(
+        &executable.path, &executable.invoke_name, &(command->args),
+        &(command->settings), pipe_settings);
+
+    if (res.is_ok) {
+      *result = (ShellCommandSynchronization){
+          .type = ShellCommandSynchronizationTypeError,
+          .data = {.error = res.data.error}};
+      return;
+    }
+
+    *result = (ShellCommandSynchronization){
+        .type = ShellCommandSynchronizationTypeProcess,
+        .data = {.process = {.handle = res.data.handle}}};
+    return;
+  }
+  default: {
+    // TODO: make custom unreachable, that also fails in release mode
+    unreachable();
+    break;
+  }
+  }
+}
+
+TVEC_DEFINE_AND_IMPLEMENT_VEC_TYPE(ShellPipeSettings)
+
+typedef TVEC_TYPENAME(ShellPipeSettings) ShellPipeSettingsArray;
+
+TVEC_DEFINE_AND_IMPLEMENT_VEC_TYPE(ShellCommandSynchronization)
+
+typedef TVEC_TYPENAME(ShellCommandSynchronization)
+    ShellCommandSynchronizationArray;
+
+static void shell_execute_pipeline(const ShellParseDataPipeline *pipeline,
+                                   ShellState *state) {
+
+  const size_t pipeline_length = TVEC_LENGTH(ShellCommand, pipeline->commands);
+
+  if (pipeline_length == 0) {
+    RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+    RETURNS_VOID shell_print_error("[INTERNAL] Invalid empty pipeline");
+    return;
+  }
+
+  // do this synchronously, as we don't need complicated stuff for just one
+  // command
+  if (pipeline_length == 1) {
+    const ShellCommand *const command =
+        TVEC_GET_AT(ShellCommand, &(pipeline->commands), 0);
+    RETURNS_VOID shell_execute_command_synchronous(command, state);
+    return;
+  }
+
+  // setup pipeline and sync state
+  // we need an array for pipes, and than a array to hold sync states (either
+  // for the subshells thread of the builtin or subshell pids of the child
+  // processes for executables)
+  ShellPipeSettingsArray pipe_settings = TVEC_EMPTY(ShellPipeSettings);
+  ShellCommandSynchronizationArray synchronization =
+      TVEC_EMPTY(ShellCommandSynchronization);
+
+  TvecResult res =
+      TVEC_RESERVE(ShellPipeSettings, &pipe_settings, pipeline_length);
+
+  if (res != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
+    RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+    RETURNS_VOID shell_print_error("OOM in executing pipeline");
+    return;
+  }
+
+  TvecResult res2 = TVEC_RESERVE(ShellCommandSynchronization, &synchronization,
+                                 pipeline_length);
+
+  if (res2 != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
+    RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+    RETURNS_VOID shell_print_error("OOM in executing pipeline");
+    return;
+  }
+
+  {
+    ShellPipeState next_pipe = {.fds = {0, 0}};
+
+    for (size_t i = 0; i < pipeline_length; ++i) {
+
+      ShellPipeSettings *const pipe_setting =
+          TVEC_GET_AT_MUT(ShellPipeSettings, &pipe_settings, i);
+      ShellCommandSynchronization *const sync =
+          TVEC_GET_AT_MUT(ShellCommandSynchronization, &synchronization, i);
+
+      *sync = (ShellCommandSynchronization){
+          .type = ShellCommandSynchronizationTypeError,
+          .data = {.error = TSTR_LIT("Not filled yet")}};
+
+      *pipe_setting = (ShellPipeSettings){
+          .stdin = {.is_pipe = false, .state = {.fds = {0, 0}}},
+          .stdout = {.is_pipe = false, .state = {.fds = {0, 0}}},
+      };
+
+      ShellPipeState current_pipe = {.fds = {0, 0}};
+
+      if (i < (pipeline_length - 1)) {
+
+        int res = pipe(current_pipe.fds);
+
+        if (res != 0) {
+          RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+          RETURNS_VOID shell_print_error("error in creating pipe");
+          goto pipeline_cleanup;
+        }
+
+        pipe_setting->stdout =
+            (ShellMaybePipe){.is_pipe = true, .state = current_pipe};
+      }
+
+      if (i > 0) {
+        pipe_setting->stdin =
+            (ShellMaybePipe){.is_pipe = true, .state = next_pipe};
+      }
+
+      next_pipe = current_pipe;
+    }
+  }
+
+  for (size_t i = 0; i < TVEC_LENGTH(ShellCommand, pipeline->commands); ++i) {
+
+    const ShellCommand *const command =
+        TVEC_GET_AT(ShellCommand, &(pipeline->commands), i);
+    ShellCommandSynchronization *const sync =
+        TVEC_GET_AT_MUT(ShellCommandSynchronization, &synchronization, i);
+    const ShellPipeSettings *const pipe_setting =
+        TVEC_GET_AT(ShellPipeSettings, &pipe_settings, i);
+
+    // if we have a executable, launch it with the pipe settings and get the pid
+    // for a builtin start a new thread and get the thread_id
+    RETURNS_VOID shell_execute_command_in_subshell(command, state, pipe_setting,
+                                                   sync);
+
+    if (sync->type == ShellCommandSynchronizationTypeError) {
+      RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+      const char *errors[] = {"[INTERNAL]: ", tstr_cstr(&(sync->data.error))};
+      RETURNS_VOID shell_print_errors(errors, ARRAY_SIZE(errors));
+      tstr_free(&(sync->data.error));
+
+      goto pipeline_cleanup;
+    }
+    //
+  }
+
+  // TODO: here we should implement pipefail, when we need to
+
+  // wait for all steps of the pipeline to end
+
+  for (size_t i = 0; i < TVEC_LENGTH(ShellCommand, pipeline->commands); ++i) {
+
+    // just walk linearly through all of them we need to wait nevertheless for
+    // all, so might as well do left to right in a pipline, no nened for fancy
+    // waitpid(WNOHANG) or condition variables for threads
+
+    ShellCommandSynchronization *const sync =
+        TVEC_GET_AT_MUT(ShellCommandSynchronization, &synchronization, i);
+    const ShellPipeSettings *const pipe_setting =
+        TVEC_GET_AT(ShellPipeSettings, &pipe_settings, i);
+
+    switch (sync->type) {
+    case ShellCommandSynchronizationTypeProcess: {
+      int status;
+      int res = waitpid(sync->data.process.handle.child_pid, &status, 0);
+      if (res < 0) {
+        RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+        RETURNS_VOID shell_print_error("error in waitpid");
+        goto pipeline_cleanup;
+      }
+
+      if (WIFEXITED(status)) {
+        uint8_t exit_status = WEXITSTATUS(status);
+        // this is only needed for pipefail
+        UNUSED(exit_status);
+      } else if (WIFSIGNALED(status)) {
+        uint8_t signal_number = WTERMSIG(status);
+        // this is only needed for pipefail
+        UNUSED(signal_number);
+      } else {
+        RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+        RETURNS_VOID shell_print_error("process not exited");
+        goto pipeline_cleanup;
+      }
+
+      // handle pipes, these need to be cleaned up in this scenario only and
+      // after the processes, as the fork duplicates teh pipe fds and they need
+      // to be closed in the forked and this process
+
+      if (pipe_setting->stdout.is_pipe) {
+
+        // close the unnecessary WRITE_END
+        IGNORE_RESULT close(pipe_setting->stdout.state.fds[PIPE_WRITE_END]);
+      }
+
+      if (pipe_setting->stdin.is_pipe) {
+
+        // close the unnecessary READ_END
+        IGNORE_RESULT close(pipe_setting->stdout.state.fds[PIPE_READ_END]);
+      }
+
+      break;
+    }
+    case ShellCommandSynchronizationTypeThread: {
+
+      void *return_value = NULL;
+      int res = pthread_join(sync->data.thread.thread_id, &return_value);
+
+      if (res != 0) {
+        RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+        RETURNS_VOID shell_print_error("process not exited");
+        goto pipeline_cleanup;
+      }
+
+      RETURNS_VOID free_sub_shell_thread_state(sync->data.thread.state);
+      break;
+    }
+    case ShellCommandSynchronizationTypeError: {
+      RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+      const char *errors[] = {"[INTERNAL]: ", tstr_cstr(&sync->data.error)};
+      RETURNS_VOID shell_print_errors(errors, ARRAY_SIZE(errors));
+
+      tstr_free(&sync->data.error);
+      goto pipeline_cleanup;
+    }
+    default: {
+      RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+      RETURNS_VOID shell_print_error(
+          "[INTERNAL] invalid shell command sync type");
+      goto pipeline_cleanup;
+    }
+    }
+  }
+
+pipeline_cleanup:
+  // cleanup pipes, if they are forked, we need to close them here, otherwise we
+  // need to cleanup after the builtins
+
+  // TODO
+}
+
 void shell_repl_step(ShellState *state) {
 
   if (!shell_process_input_state(state)) {
 
-    RETURNS_VOID shell_exit(state, ExitCodeGenericError);
+    RETURNS_VOID shell_global_exit(state, ExitCodeGenericError);
 
     RETURNS_VOID shell_print_error("[INTERNAL] prompt print error");
     return;
@@ -220,7 +704,7 @@ void shell_repl_step(ShellState *state) {
   ShellInputResult input = shell_get_input(&(state->input_state));
 
   if (input.type == ShellInputResultTypeEOF) {
-    RETURNS_VOID shell_exit(state, state->command_state.exit_code);
+    RETURNS_VOID shell_global_exit(state, state->command_state.exit_code);
     return;
   }
 
@@ -231,74 +715,58 @@ void shell_repl_step(ShellState *state) {
       error = input.data.error;
     }
 
-    RETURNS_VOID shell_exit(state, ExitCodeImplementationError);
+    RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
 
     RETURNS_VOID shell_print_error(tstr_cstr(&error));
     tstr_free(&error);
     return;
   }
 
-  ShellHandle shell_handle = {.context = state, .function = g_shell_functions};
+  ShellHandle shell_handle = SHELL_HANDLE_SYNCHRONOUS(state);
 
   ShellInputOkResult data = input.data.ok;
   ShellParseDataResult parse =
       shell_parse_data(INPUT_DATA_VIEW(data), shell_handle);
 
   switch (parse.type) {
-  case ShellParseDataResultTypeCommand: {
-    const ShellCommand command = parse.data.command;
-    switch (command.type) {
-    case ShellCommandTypeBuiltin: {
-      const ShellCommandBuiltin builtin = command.data.builtin;
+  case ShellParseDataResultTypePipeline: {
+    const ShellParseDataPipeline pipeline = parse.data.pipeline;
 
-      ExitCode command_exit_code =
-          invoke_shell_builtin(builtin, shell_handle, &command.settings);
-      set_command_exit_code(state, command_exit_code);
+    RETURNS_VOID shell_execute_pipeline(&pipeline, state);
 
-      builtin.command.validator.free(builtin.args);
-
-      break;
-    }
-    case ShellCommandTypeExecutable: {
-      ShellCommandExecutable executable = command.data.executable;
-
-      ExitCode command_exit_code =
-          invoke_executable(&executable.path, &executable.invoke_name,
-                            &command.args, &command.settings);
-      set_command_exit_code(state, command_exit_code);
-
-      free_shell_command_executable(&executable);
-
-      break;
-    }
-    default: {
-      RETURNS_VOID shell_exit(state, ExitCodeImplementationError);
-
-      RETURNS_VOID shell_print_error("[INTERNAL] Invalid command type");
-      break;
-    }
-    }
-
-    free_shell_command(&parse.data.command);
+    free_shell_pipeline(&parse.data.pipeline);
 
     break;
   }
-  case ShellParseDataResultTypeCommandNotFound: {
-    int res = fprintf(stderr, TSTR_FMT ": command not found\n",
-                      TSTR_FMT_ARGS(parse.data.command_not_found.name));
+  case ShellParseDataResultTypeCommandsNotFound: {
+    const ShellCommandsNotFound not_found = parse.data.not_found;
 
-    free_shell_command_not_found(&parse.data.command_not_found);
+    for (size_t i = 0; i < TVEC_LENGTH(ShellCommandNotFound, not_found.array);
+         ++i) {
 
-    if (res < 0) {
-      RETURNS_VOID shell_exit(state, ExitCodeIOError);
+      const ShellCommandNotFound *const command_not_found =
+          TVEC_GET_AT(ShellCommandNotFound, &(not_found.array), i);
 
-      RETURNS_VOID shell_print_error("[INTERNAL] output error");
-      break;
+      int res = fprintf(stderr, TSTR_FMT ": command not found\n",
+                        TSTR_FMT_ARGS(command_not_found->name));
+
+      if (res < 0) {
+        RETURNS_VOID shell_global_exit(state, ExitCodeIOError);
+
+        RETURNS_VOID shell_print_error("[INTERNAL] output error");
+
+        goto err_out_of_loop;
+      }
     }
+
     set_command_exit_code(state, ExitCodeCommandNotFound);
+
+  err_out_of_loop:
+    free_shell_commands_not_found(&parse.data.not_found);
+
     break;
   }
-  case ShellParseDataResultEmpty: {
+  case ShellParseDataResultTypeEmpty: {
     break;
   }
   case ShellParseDataResultTypeError: {
@@ -306,7 +774,7 @@ void shell_repl_step(ShellState *state) {
     tstr_free(&parse.data.error);
 
     if (res < 0) {
-      RETURNS_VOID shell_exit(state, ExitCodeIOError);
+      RETURNS_VOID shell_global_exit(state, ExitCodeIOError);
 
       RETURNS_VOID shell_print_error("[INTERNAL] output error");
       break;
@@ -315,7 +783,7 @@ void shell_repl_step(ShellState *state) {
     break;
   }
   default: {
-    RETURNS_VOID shell_exit(state, ExitCodeImplementationError);
+    RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
 
     RETURNS_VOID shell_print_error("[INTERNAL] Invalid parse result");
     break;
@@ -324,7 +792,7 @@ void shell_repl_step(ShellState *state) {
 
 #if SHELL_USE_EDIT_LIBRARY == 2
   if (data.end) {
-    RETURNS_VOID shell_exit(state, state->command_state.exit_code);
+    RETURNS_VOID shell_global_exit(state, state->command_state.exit_code);
   }
 #endif
 
@@ -384,16 +852,19 @@ static ShellSetupResult shell_setup_repl(const char *const program_name) {
 
   if (tstr_is_null(&cwd)) {
     return (ShellSetupResult){.type = ShellSetupResultTypeError,
-                              .data = {.error = TSTR_LIT("ced get error")}};
+                              .data = {.error = TSTR_LIT("cwd get error")}};
   }
 
   ShellState state = {
-      .alive = true,
-      .result = ExitCodeSuccess,
       .command_state = {.exit_code = ExitCodeSuccess},
       .interactive = interactive,
-      .cwd = cwd,
       .input_state = input_state,
+      .global =
+          {
+              .alive = true,
+              .result = ExitCodeSuccess,
+              .cwd = cwd,
+          },
   };
 
   return (ShellSetupResult){.type = ShellSetupResultTypeOk,
@@ -402,7 +873,8 @@ static ShellSetupResult shell_setup_repl(const char *const program_name) {
 
 static void shell_destroy_state(ShellState *state) {
 
-  tstr_free(&(state->cwd));
+  shell_destroy_instance_state(&(state->global));
+
 #if SHELL_USE_EDIT_LIBRARY == 0
   el_end(state->input_state.el);
   shell_cleanup_old_prompt(state);
@@ -477,7 +949,7 @@ NODISCARD static bool shell_setup_prompt(ShellState *state) {
   if (!ok) {
     return false;
   }
-  // TODO
+  // TODO: set editor, fo standard shortcuts
   // el_set(EL_EDITOR, "emacs" "vi")
   return true;
 #elif SHELL_USE_EDIT_LIBRARY == 1
@@ -517,11 +989,11 @@ ExitCode shell_execute_repl(const size_t argc, char *const *const argv) {
     return ExitCodeImplementationError;
   }
 
-  while (state.alive) {
+  while (state.global.alive) {
     shell_repl_step(&state);
   }
 
   shell_destroy_state(&state);
 
-  return state.result;
+  return state.global.result;
 }

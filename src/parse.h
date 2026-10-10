@@ -4,13 +4,6 @@
 #include "./builtins.h"
 #include "./utils.h"
 
-typedef enum : uint8_t {
-  ShellParseDataResultTypeError = 0,
-  ShellParseDataResultTypeCommand,
-  ShellParseDataResultTypeCommandNotFound,
-  ShellParseDataResultEmpty,
-} ShellParseDataResultType;
-
 typedef struct {
   tstr name;
 } ShellCommandNotFound;
@@ -35,11 +28,34 @@ typedef struct {
   ShellRedirectSettings settings;
 } ShellCommand;
 
+TVEC_DEFINE_VEC_TYPE(ShellCommand)
+
+typedef TVEC_TYPENAME(ShellCommand) ShellCommands;
+
+typedef struct {
+  ShellCommands commands;
+} ShellParseDataPipeline;
+
+typedef enum : uint8_t {
+  ShellParseDataResultTypeError = 0,
+  ShellParseDataResultTypePipeline,
+  ShellParseDataResultTypeCommandsNotFound,
+  ShellParseDataResultTypeEmpty,
+} ShellParseDataResultType;
+
+TVEC_DEFINE_VEC_TYPE(ShellCommandNotFound)
+
+typedef TVEC_TYPENAME(ShellCommandNotFound) ShellCommandNotFoundArray;
+
+typedef struct {
+  ShellCommandNotFoundArray array;
+} ShellCommandsNotFound;
+
 typedef struct {
   ShellParseDataResultType type;
   union {
-    ShellCommandNotFound command_not_found;
-    ShellCommand command;
+    ShellParseDataPipeline pipeline;
+    ShellCommandsNotFound not_found;
     tstr error;
   } data;
 } ShellParseDataResult;
@@ -47,6 +63,6 @@ typedef struct {
 NODISCARD ShellParseDataResult shell_parse_data(tstr_view input,
                                                 const ShellHandle shell);
 
-void free_shell_command(ShellCommand *command);
+void free_shell_pipeline(ShellParseDataPipeline *pipeline);
 
-void free_shell_command_not_found(ShellCommandNotFound *found);
+void free_shell_commands_not_found(ShellCommandsNotFound *not_found);
