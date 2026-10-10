@@ -837,7 +837,7 @@ static void free_shell_io_in_subshell(ShellIO io, const ShellPipeSettings* pipe_
 
 	if(pipe_settings->stdout.is_pipe) {
 		// if we have a stdout pipe, close it
-		int stdout_fd = pipe_settings->stdin.state.fds[PIPE_WRITE_END];
+		int stdout_fd = pipe_settings->stdout.state.fds[PIPE_WRITE_END];
 
 		// TODO: maybe report errors here
 		IGNORE_RESULT close(stdout_fd);
