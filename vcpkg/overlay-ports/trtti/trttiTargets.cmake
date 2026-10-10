@@ -1,0 +1,6 @@
+add_library(tvec INTERFACE IMPORTED)
+
+set_target_properties(tvec PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES
+    "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/src"
+)

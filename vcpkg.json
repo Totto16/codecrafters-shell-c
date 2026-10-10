@@ -9,6 +9,9 @@
     },
     {
       "name": "readline"
+    },
+    {
+      "name": "trtti"
     }
   ],
   "features": {

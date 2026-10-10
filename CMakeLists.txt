@@ -43,3 +43,6 @@ target_link_libraries(shell PRIVATE tstr)
 
 find_package(tvec CONFIG REQUIRED)
 target_link_libraries(shell PRIVATE tvec)
+
+find_package(trtti CONFIG REQUIRED)
+target_link_libraries(shell PRIVATE trtti)
