@@ -26,10 +26,24 @@ TRTTI_DECLARE_TYPE_AS_SUPPORTED(ExitData)
 
 typedef void (*shell_fn_exit)(shell_virtual_context ctx, const ExitData* data);
 
+typedef bool (*shell_fn_add_to_history)(shell_virtual_context ctx, tstr_view command);
+
+TVEC_DEFINE_VEC_TYPE(tstr)
+
+typedef TVEC_TYPENAME(tstr) TstrArray;
+
+typedef struct {
+	TstrArray array;
+} ShellHistory;
+
+typedef const ShellHistory* (*shell_fn_get_history)(shell_virtual_context ctx);
+
 typedef struct {
 	shell_fn_get_current_working_directory get_current_working_directory;
 	shell_fn_set_current_working_directory set_current_working_directory;
 	shell_fn_exit exit;
+	shell_fn_add_to_history add_to_history;
+	shell_fn_get_history get_history;
 } ShellVirtualFunctions;
 
 typedef struct {

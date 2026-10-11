@@ -644,7 +644,7 @@ static const BuiltinCommand builtin_function_cd = {
 };
 
 typedef struct {
-	int dodo;
+	int todo;
 } HistroyData;
 
 TRTTI_DECLARE_TYPE_AS_SUPPORTED(HistroyData)
@@ -673,13 +673,25 @@ static ExitCode history_invoke(shell_dynamic_args args, const ShellHandle shell,
 	UNUSED(shell);
 	HistroyData* history_data = TRTTI_ANNOTATED_PTR_CAST(HistroyData, args);
 
-	int res = SHELL_FPINTF(stderr, "TODO: not yet implemented\n");
-	if(res < 0) {
-		RETURN_IO_ERROR("history");
-	}
+	const ShellHistory* const history = shell.function.get_history(shell.context);
 
+	if(history == NULL) {
+		RETURN_IMPL_ERROR("history", "history get error");
+	}
 	// TODO
 	UNUSED(history_data);
+
+	for(size_t i = 0; i < TVEC_LENGTH(tstr, history->array); ++i) {
+
+		const tstr* const entry = TVEC_GET_AT(tstr, &(history->array), i);
+		ASSERT(entry != NULL);
+
+		int res = SHELL_FPINTF(stdout, "    %zu  " TSTR_FMT "\n", (i + 1), TSTR_FMT_ARGS(*entry));
+
+		if(res < 0) {
+			RETURN_IO_ERROR("history");
+		}
+	}
 
 	return ExitCodeSuccess;
 }
@@ -997,8 +1009,8 @@ NODISCARD bool shell_redirect_is_set(const ShellRedirectLocation* location) {
 
 NODISCARD int shell_redirect_open_file(const ShellRedirectLocation* location) {
 
-	// NOTE: when truncating, we just replace the files comment, but we don't emit a warning if the
-	// file already exists, as bash doesn't do that neither
+	// NOTE: when truncating, we just replace the files comment, but we don't emit a warning if
+	// the file already exists, as bash doesn't do that neither
 
 	int flags = O_WRONLY | O_CREAT;
 

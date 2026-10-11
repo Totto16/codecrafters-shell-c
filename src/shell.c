@@ -25,6 +25,7 @@ typedef struct {
 	bool alive;
 	ExitCode result;
 	tstr cwd;
+	ShellHistory history;
 } ShellInstanceState;
 
 typedef struct {
@@ -74,6 +75,24 @@ static void shell_exit(ShellInstanceState* state, ExitCode code) {
 	}
 }
 
+static bool shell_instance_add_to_history(ShellInstanceState* state, tstr_view command) {
+
+	tstr arg = tstr_from_view(command);
+
+	if(tstr_is_null(&arg)) {
+		return false;
+	}
+
+	TvecResult res = TVEC_PUSH(tstr, &(state->history.array), arg);
+
+	if(res != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
+		tstr_free(&arg);
+		return false;
+	}
+
+	return true;
+}
+
 static void shell_global_exit(ShellState* state, ExitCode code) {
 	shell_exit(&(state->global), code);
 }
@@ -88,6 +107,20 @@ static void shell_virtual_fn_sync_exit(shell_virtual_context ctx, const ExitData
 	} else {
 		RETURNS_VOID shell_global_exit(state, data->code);
 	}
+}
+
+static bool shell_virtual_fn_sync_add_to_history(shell_virtual_context ctx, tstr_view command) {
+
+	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
+
+	return shell_instance_add_to_history(&(state->global), command);
+}
+
+static const ShellHistory* shell_virtual_fn_sync_get_history(shell_virtual_context ctx) {
+
+	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
+
+	return &(state->global.history);
 }
 
 static tstr_view shell_virtual_fn_sync_get_current_working_directory(shell_virtual_context ctx) {
@@ -126,9 +159,11 @@ static bool shell_virtual_fn_sync_set_current_working_directory(shell_virtual_co
 }
 
 static const ShellVirtualFunctions g_shell_functions_synchronous = {
-	.exit = shell_virtual_fn_sync_exit,
 	.get_current_working_directory = shell_virtual_fn_sync_get_current_working_directory,
 	.set_current_working_directory = shell_virtual_fn_sync_set_current_working_directory,
+	.exit = shell_virtual_fn_sync_exit,
+	.add_to_history = shell_virtual_fn_sync_add_to_history,
+	.get_history = shell_virtual_fn_sync_get_history,
 };
 
 #define SHELL_HANDLE_SYNCHRONOUS(ctx) \
@@ -154,6 +189,20 @@ static void shell_virtual_fn_subshell_exit(shell_virtual_context ctx, const Exit
 	} else {
 		RETURNS_VOID shell_exit(&(state->instance), data->code);
 	}
+}
+
+static bool shell_virtual_fn_subshell_add_to_history(shell_virtual_context ctx, tstr_view command) {
+
+	ShellSubShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellSubShellState, ctx);
+
+	return shell_instance_add_to_history(&(state->instance), command);
+}
+
+static const ShellHistory* shell_virtual_fn_subshell_get_history(shell_virtual_context ctx) {
+
+	ShellSubShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellSubShellState, ctx);
+
+	return &(state->instance.history);
 }
 
 static tstr_view
@@ -193,9 +242,11 @@ static bool shell_virtual_fn_subshell_set_current_working_directory(shell_virtua
 }
 
 static const ShellVirtualFunctions g_shell_functions_subshell = {
-	.exit = shell_virtual_fn_subshell_exit,
 	.get_current_working_directory = shell_virtual_fn_subshell_get_current_working_directory,
 	.set_current_working_directory = shell_virtual_fn_subshell_set_current_working_directory,
+	.exit = shell_virtual_fn_subshell_exit,
+	.add_to_history = shell_virtual_fn_subshell_add_to_history,
+	.get_history = shell_virtual_fn_subshell_get_history,
 };
 
 #define SHELL_HANDLE_SUBSHELL(ctx) { .context = (ctx), .function = g_shell_functions_subshell };
@@ -394,14 +445,29 @@ typedef struct {
 	} data;
 } ShellCommandSynchronization;
 
-static void shell_destroy_instance_state(ShellInstanceState* state) {
+static void free_shell_history(ShellHistory* history) {
+
+	for(size_t i = 0; i < TVEC_LENGTH(tstr, history->array); ++i) {
+
+		tstr* const arg = TVEC_GET_AT_MUT(tstr, &(history->array), i);
+		ASSERT(arg != NULL);
+
+		tstr_free(arg);
+	}
+
+	TVEC_FREE(tstr, &(history->array));
+}
+
+static void free_shell_instance_state(ShellInstanceState* state) {
 
 	tstr_free(&(state->cwd));
+
+	free_shell_history(&(state->history));
 }
 
 static void free_sub_shell_thread_state(ShellSubShellThreadState* state) {
 
-	shell_destroy_instance_state(&state->state.instance);
+	free_shell_instance_state(&state->state.instance);
 
 	TRTTI_DESTROY(ShellSubShellThreadState, state);
 }
@@ -440,6 +506,7 @@ static void shell_execute_command_in_subshell(const ShellCommand* const command,
                                                    .alive = true,
                                                    .result = ExitCodeSuccess,
                                                    .cwd = cwd,
+                                                   .history = { .array = TVEC_EMPTY(tstr) }
                                                },
                                        },
                                    .builtin = builtin,
@@ -943,23 +1010,21 @@ static ShellSetupResult shell_setup_repl(const char* const program_name) {
 	}
 
 	ShellState state = {
-      .command_state = {.exit_code = ExitCodeSuccess},
-      .interactive = interactive,
-      .input_state = input_state,
-      .global =
-          {
-              .alive = true,
-              .result = ExitCodeSuccess,
-              .cwd = cwd,
-          },
-  };
+		.command_state = { .exit_code = ExitCodeSuccess },
+		.interactive = interactive,
+		.input_state = input_state,
+		.global = { .alive = true,
+		            .result = ExitCodeSuccess,
+		            .cwd = cwd,
+		            .history = { .array = TVEC_EMPTY(tstr) } },
+	};
 
 	return (ShellSetupResult){ .type = ShellSetupResultTypeOk, .data = { .ok = state } };
 }
 
-static void shell_destroy_state(ShellState* state) {
+static void free_shell_state(ShellState* state) {
 
-	shell_destroy_instance_state(&(state->global));
+	free_shell_instance_state(&(state->global));
 
 #if SHELL_USE_EDIT_LIBRARY == 0
 	el_end(state->input_state.el);
@@ -1080,7 +1145,9 @@ ExitCode shell_execute_repl(const size_t argc, char* const* const argv) {
 		shell_repl_step(&state);
 	}
 
-	shell_destroy_state(&state);
+	const ExitCode result = state.global.result;
 
-	return state.global.result;
+	free_shell_state(&state);
+
+	return result;
 }

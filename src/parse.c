@@ -735,6 +735,13 @@ ShellParseDataResult shell_parse_data(tstr_view input, const ShellHandle shell) 
 			                           .data = { .error = program_res.data.error } };
 	}
 
+	bool ok = shell.function.add_to_history(shell.context, input);
+	if(!ok) {
+		// move program_res.data.error ownership to the ShellParseDataResult struct
+		return (ShellParseDataResult){ .type = ShellParseDataResultTypeError,
+			                           .data = { .error = TSTR_LIT("history add error") } };
+	}
+
 	ParsedPipeline parsed_pipeline = program_res.data.pipeline;
 
 	if(TVEC_LENGTH(ParsedProgram, parsed_pipeline.programs) == 0) {
