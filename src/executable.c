@@ -374,7 +374,7 @@ ShellExecuteSyncResult invoke_executable_synchronous(const tstr* path,
 			                             .data = { .error = result.data.error } };
 	}
 
-	auto handle = result.data.handle;
+	ShellExecuteAsyncHandle handle = result.data.handle;
 
 	int status = 0;
 	int res = waitpid(handle.child_pid, &status, 0);

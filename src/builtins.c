@@ -643,9 +643,22 @@ static const BuiltinCommand builtin_function_cd = {
 	.help = cd_help,
 };
 
+typedef enum : uint8_t {
+	HistoryModeNormal = 0,
+	HistoryModeProcessFile,
+} HistoryMode;
+
 typedef struct {
 	bool has_limit;
 	size_t limit;
+} HistoryNormalData;
+
+typedef struct {
+	HistoryMode type;
+	union {
+		HistoryNormalData normal;
+		HistoryProcessData process;
+	} data;
 } HistoryData;
 
 TRTTI_DECLARE_TYPE_AS_SUPPORTED(HistoryData)
@@ -657,13 +670,23 @@ static ShellParseArgumentsResult history_parse_arguments(const ShellArguments* a
 	// TODO(Totto): support options to history
 
 	if(args->length == 0) {
-		HistoryData history_data = { .has_limit = false, .limit = 0 };
+		HistoryData history_data = { .type = HistoryModeNormal,
+			                         .data = { .normal = { .has_limit = false, .limit = 0 } } };
 		RETURN_ARGUMENT(HistoryData, history_data);
 	}
 
 	if(args->length == 1) {
 		const ShellArgument* const arg1 = TVEC_GET_AT(ShellArgument, args, 0);
 		ASSERT(arg1 != NULL);
+
+		if(tstr_eq_cstr(&(arg1->parsed), "-r") || tstr_eq_cstr(&(arg1->parsed), "-w") ||
+		   tstr_eq_cstr(&(arg1->parsed), "-a")) {
+			return (ShellParseArgumentsResult){
+				.is_ok = false,
+				.data = { .error = TSTR_LIT(
+				              "Invalid argument for history: -rwa\nExpects a filename") }
+			};
+		}
 
 		int result = 0;
 		bool ok = tstr_view_to_int(tstr_as_view(&(arg1->parsed)), &result);
@@ -682,7 +705,39 @@ static ShellParseArgumentsResult history_parse_arguments(const ShellArguments* a
 				              "Invalid argument for history: [n]\nNumber out of range") }
 			};
 		}
-		HistoryData history_data = { .has_limit = true, .limit = (size_t)result };
+		HistoryData history_data = { .type = HistoryModeNormal,
+			                         .data = { .normal = { .has_limit = true,
+			                                               .limit = (size_t)result } } };
+		RETURN_ARGUMENT(HistoryData, history_data);
+	}
+
+	if(args->length == 2) {
+		const ShellArgument* const arg1 = TVEC_GET_AT(ShellArgument, args, 0);
+		ASSERT(arg1 != NULL);
+
+		const ShellArgument* const arg2 = TVEC_GET_AT(ShellArgument, args, 1);
+		ASSERT(arg2 != NULL);
+
+		HistoryProcessType process_type = HistoryProcessTypeAppend;
+
+		if(tstr_eq_cstr(&(arg1->parsed), "-r")) {
+			process_type = HistoryProcessTypeRead;
+		} else if(tstr_eq_cstr(&(arg1->parsed), "-w")) {
+			process_type = HistoryProcessTypeWrite;
+		} else if(tstr_eq_cstr(&(arg1->parsed), "-a")) {
+			process_type = HistoryProcessTypeAppend;
+		} else {
+
+			return (ShellParseArgumentsResult){
+				.is_ok = false, .data = { .error = TSTR_LIT("history: invalid arguments") }
+			};
+		}
+
+		tstr file = tstr_dup(&(arg2->parsed));
+
+		HistoryData history_data = { .type = HistoryModeProcessFile,
+			                         .data = {
+			                             .process = { .type = process_type, .file = file } } };
 		RETURN_ARGUMENT(HistoryData, history_data);
 	}
 
@@ -699,38 +754,57 @@ static ExitCode history_invoke(shell_dynamic_args args, const ShellHandle shell,
 	UNUSED(shell);
 	HistoryData* history_data = TRTTI_ANNOTATED_PTR_CAST(HistoryData, args);
 
-	const ShellHistory* const history = shell.function.get_history(shell.context);
+	switch(history_data->type) {
+		case HistoryModeNormal: {
+			const ShellHistory* const history = shell.function.get_history(shell.context);
 
-	if(history == NULL) {
-		RETURN_IMPL_ERROR("history", "history get error");
-	}
+			if(history == NULL) {
+				RETURN_IMPL_ERROR("history", "history get error");
+			}
 
-	const size_t history_length = TVEC_LENGTH(tstr, history->array);
+			const size_t history_length = TVEC_LENGTH(tstr, history->array);
 
-	size_t min_history = 0;
-	if(history_data->has_limit) {
-		if(history_data->limit < history_length) {
-			min_history = history_length - history_data->limit;
+			const HistoryNormalData data = history_data->data.normal;
+
+			size_t min_history = 0;
+			if(data.has_limit) {
+				if(data.limit < history_length) {
+					min_history = history_length - data.limit;
+				}
+			}
+
+			for(size_t i = 0; i < history_length; ++i) {
+
+				if(i < min_history) {
+					continue;
+				}
+
+				const tstr* const entry = TVEC_GET_AT(tstr, &(history->array), i);
+				ASSERT(entry != NULL);
+
+				int res =
+				    SHELL_FPINTF(stdout, "    %zu  " TSTR_FMT "\n", (i + 1), TSTR_FMT_ARGS(*entry));
+
+				if(res < 0) {
+					RETURN_IO_ERROR("history");
+				}
+			}
+
+			return ExitCodeSuccess;
+		}
+		case HistoryModeProcessFile: {
+			const bool ok =
+			    shell.function.process_history_file(shell.context, &(history_data->data.process));
+
+			if(!ok) {
+				RETURN_IMPL_ERROR("history", "history process error");
+			}
+			return ExitCodeSuccess;
+		}
+		default: {
+			RETURN_IMPL_ERROR("history", "invalid history mode");
 		}
 	}
-
-	for(size_t i = 0; i < history_length; ++i) {
-
-		if(i < min_history) {
-			continue;
-		}
-
-		const tstr* const entry = TVEC_GET_AT(tstr, &(history->array), i);
-		ASSERT(entry != NULL);
-
-		int res = SHELL_FPINTF(stdout, "    %zu  " TSTR_FMT "\n", (i + 1), TSTR_FMT_ARGS(*entry));
-
-		if(res < 0) {
-			RETURN_IO_ERROR("history");
-		}
-	}
-
-	return ExitCodeSuccess;
 }
 
 static tstr_static history_help(void) {
@@ -1049,15 +1123,15 @@ NODISCARD int shell_redirect_open_file(const ShellRedirectLocation* location) {
 	// NOTE: when truncating, we just replace the files comment, but we don't emit a warning if
 	// the file already exists, as bash doesn't do that neither
 
-	int flags = O_WRONLY | O_CREAT;
+	int o_flags = O_WRONLY | O_CREAT;
 
 	if(location->append) {
-		flags |= O_APPEND;
+		o_flags |= O_APPEND;
 	} else {
-		flags |= O_TRUNC;
+		o_flags |= O_TRUNC;
 	}
 
-	int fd = open(tstr_cstr(&(location->location)), flags, 0644);
+	int fd = open(tstr_cstr(&(location->location)), o_flags, OMODE_DEFAULT);
 
 	return fd;
 }

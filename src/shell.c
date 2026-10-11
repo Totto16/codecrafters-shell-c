@@ -13,6 +13,7 @@
 #include "./builtins.h"
 #include "./executable.h"
 #include "./file.h"
+#include "./history.h"
 #include "./input.h"
 #include "./parse.h"
 #include "./utils.h"
@@ -75,20 +76,14 @@ static void shell_exit(ShellInstanceState* state, ExitCode code) {
 	}
 }
 
-static bool shell_instance_add_to_history(ShellInstanceState* state, tstr_view command) {
+static bool shell_instance_add_to_history(ShellInstanceState* state, tstr command) {
 
 	// NOTE: we don't handle "duplicates" (bytewise same strings)
 
-	tstr arg = tstr_from_view(command);
-
-	if(tstr_is_null(&arg)) {
-		return false;
-	}
-
-	TvecResult res = TVEC_PUSH(tstr, &(state->history.array), arg);
+	TvecResult res = TVEC_PUSH(tstr, &(state->history.array), command);
 
 	if(res != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
-		tstr_free(&arg);
+		tstr_free(&command);
 		return false;
 	}
 
@@ -111,14 +106,12 @@ static void shell_virtual_fn_sync_exit(shell_virtual_context ctx, const ExitData
 	}
 }
 
-static bool shell_add_to_input_history(tstr_view command);
+static bool shell_add_to_input_history(const tstr* command);
 
-static bool shell_virtual_fn_sync_add_to_history(shell_virtual_context ctx, tstr_view command) {
-
-	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
+static bool shell_virtual_fn_sync_add_to_history_impl(ShellState* state, tstr command) {
 
 	// note only doing this in the global shell!
-	bool ok = shell_add_to_input_history(command);
+	bool ok = shell_add_to_input_history(&command);
 
 	if(!ok) {
 		return false;
@@ -127,11 +120,59 @@ static bool shell_virtual_fn_sync_add_to_history(shell_virtual_context ctx, tstr
 	return shell_instance_add_to_history(&(state->global), command);
 }
 
+static bool shell_virtual_fn_sync_add_to_history(shell_virtual_context ctx, tstr_view command) {
+
+	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
+
+	tstr arg = tstr_from_view(command);
+
+	if(tstr_is_null(&arg)) {
+		return false;
+	}
+
+	return shell_virtual_fn_sync_add_to_history_impl(state, arg);
+}
+
 static const ShellHistory* shell_virtual_fn_sync_get_history(shell_virtual_context ctx) {
 
 	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
 
 	return &(state->global.history);
+}
+
+static bool shell_virtual_fn_sync_read_history_file_impl_cb(shell_virtual_context ctx,
+                                                            tstr_view entry) {
+	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
+
+	tstr arg = tstr_from_view(entry);
+
+	if(tstr_is_null(&arg)) {
+		return false;
+	}
+
+	return shell_virtual_fn_sync_add_to_history_impl(state, arg);
+}
+
+static bool shell_virtual_fn_sync_process_history_file(shell_virtual_context ctx,
+                                                       const HistoryProcessData* const data) {
+
+	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
+
+	switch(data->type) {
+		case HistoryProcessTypeRead: {
+			return read_history_to_file(&(data->file),
+			                            shell_virtual_fn_sync_read_history_file_impl_cb, ctx);
+		}
+		case HistoryProcessTypeAppend: {
+			return write_history_to_file(&(state->global.history), &(data->file), true);
+		}
+		case HistoryProcessTypeWrite: {
+			return write_history_to_file(&(state->global.history), &(data->file), false);
+		}
+		default: {
+			return false;
+		}
+	}
 }
 
 static tstr_view shell_virtual_fn_sync_get_current_working_directory(shell_virtual_context ctx) {
@@ -175,6 +216,7 @@ static const ShellVirtualFunctions g_shell_functions_synchronous = {
 	.exit = shell_virtual_fn_sync_exit,
 	.add_to_history = shell_virtual_fn_sync_add_to_history,
 	.get_history = shell_virtual_fn_sync_get_history,
+	.process_history_file = shell_virtual_fn_sync_process_history_file,
 };
 
 #define SHELL_HANDLE_SYNCHRONOUS(ctx) \
@@ -202,11 +244,21 @@ static void shell_virtual_fn_subshell_exit(shell_virtual_context ctx, const Exit
 	}
 }
 
+static bool shell_virtual_fn_subshell_add_to_history_impl(ShellSubShellState* state, tstr command) {
+	return shell_instance_add_to_history(&(state->instance), command);
+}
+
 static bool shell_virtual_fn_subshell_add_to_history(shell_virtual_context ctx, tstr_view command) {
 
 	ShellSubShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellSubShellState, ctx);
 
-	return shell_instance_add_to_history(&(state->instance), command);
+	tstr arg = tstr_from_view(command);
+
+	if(tstr_is_null(&arg)) {
+		return false;
+	}
+
+	return shell_virtual_fn_subshell_add_to_history_impl(state, arg);
 }
 
 static const ShellHistory* shell_virtual_fn_subshell_get_history(shell_virtual_context ctx) {
@@ -214,6 +266,41 @@ static const ShellHistory* shell_virtual_fn_subshell_get_history(shell_virtual_c
 	ShellSubShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellSubShellState, ctx);
 
 	return &(state->instance.history);
+}
+
+static bool shell_virtual_fn_subshell_read_history_file_impl_cb(shell_virtual_context ctx,
+                                                                tstr_view entry) {
+	ShellSubShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellSubShellState, ctx);
+
+	tstr arg = tstr_from_view(entry);
+
+	if(tstr_is_null(&arg)) {
+		return false;
+	}
+
+	return shell_virtual_fn_subshell_add_to_history_impl(state, arg);
+}
+
+static bool shell_virtual_fn_subshell_process_history_file(shell_virtual_context ctx,
+                                                           const HistoryProcessData* const data) {
+
+	ShellSubShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellSubShellState, ctx);
+
+	switch(data->type) {
+		case HistoryProcessTypeRead: {
+			return read_history_to_file(&(data->file),
+			                            shell_virtual_fn_subshell_read_history_file_impl_cb, ctx);
+		}
+		case HistoryProcessTypeAppend: {
+			return write_history_to_file(&(state->instance.history), &(data->file), true);
+		}
+		case HistoryProcessTypeWrite: {
+			return write_history_to_file(&(state->instance.history), &(data->file), false);
+		}
+		default: {
+			return false;
+		}
+	}
 }
 
 static tstr_view
@@ -258,6 +345,7 @@ static const ShellVirtualFunctions g_shell_functions_subshell = {
 	.exit = shell_virtual_fn_subshell_exit,
 	.add_to_history = shell_virtual_fn_subshell_add_to_history,
 	.get_history = shell_virtual_fn_subshell_get_history,
+	.process_history_file = shell_virtual_fn_subshell_process_history_file,
 };
 
 #define SHELL_HANDLE_SUBSHELL(ctx) { .context = (ctx), .function = g_shell_functions_subshell };
@@ -1036,7 +1124,7 @@ static ShellSetupResult shell_setup_repl(const char* const program_name) {
 }
 
 #if SHELL_USE_EDIT_LIBRARY == 0
-static bool shell_add_to_input_history(tstr_view command) {
+static bool shell_add_to_input_history(const tstr* command) {
 	// TODO: implement
 	UNUSED(command);
 	return true;
@@ -1046,14 +1134,8 @@ static void free_input_history(ShellState* state) {
 	UNUSED(state);
 }
 #elif SHELL_USE_EDIT_LIBRARY == 1
-static bool shell_add_to_input_history(tstr_view command) {
-	tstr arg = tstr_from_view(command);
-
-	if(tstr_is_null(&arg)) {
-		return false;
-	}
-
-	RETURNS_VOID add_history(tstr_cstr(&arg));
+static bool shell_add_to_input_history(const tstr* command) {
+	RETURNS_VOID add_history(tstr_cstr(command));
 	return true;
 }
 static void free_input_history(ShellState* state) {
@@ -1061,7 +1143,7 @@ static void free_input_history(ShellState* state) {
 	clear_history();
 }
 #else
-static bool shell_add_to_input_history(tstr_view command) {
+static bool shell_add_to_input_history(const tstr* command) {
 	// TODO: implement
 	UNUSED(command);
 	return true;

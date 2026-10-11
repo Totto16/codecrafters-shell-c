@@ -38,12 +38,27 @@ typedef struct {
 
 typedef const ShellHistory* (*shell_fn_get_history)(shell_virtual_context ctx);
 
+typedef enum : uint8_t {
+	HistoryProcessTypeRead = 0,
+	HistoryProcessTypeWrite,
+	HistoryProcessTypeAppend
+} HistoryProcessType;
+
+typedef struct {
+	HistoryProcessType type;
+	tstr file;
+} HistoryProcessData;
+
+typedef bool (*shell_fn_process_history_file)(shell_virtual_context ctx,
+                                              const HistoryProcessData* data);
+
 typedef struct {
 	shell_fn_get_current_working_directory get_current_working_directory;
 	shell_fn_set_current_working_directory set_current_working_directory;
 	shell_fn_exit exit;
 	shell_fn_add_to_history add_to_history;
 	shell_fn_get_history get_history;
+	shell_fn_process_history_file process_history_file;
 } ShellVirtualFunctions;
 
 typedef struct {

@@ -82,3 +82,5 @@ typedef struct {
 ExitCode invoke_shell_builtin_in_subshell(const ShellCommandBuiltin* builtin, ShellHandle shell,
                                           const ShellRedirectSettings* settings,
                                           const ShellPipeState* pipe_state);
+
+#define OMODE_DEFAULT 0644
