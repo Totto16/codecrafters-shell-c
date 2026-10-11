@@ -706,22 +706,23 @@ static ShellProcessProgramResult shell_process_program(ParsedProgram* program) {
 			return (ShellProcessProgramResult){ .type = ShellProcessProgramResultTypeOk,
 				                                .data = { .ok = command } };
 		}
+		case CommandTypeTypeNotFound: {
+			free_shell_arguments(&program->args);
+			free_shell_redirect_settings(&program->settings);
+
+			ShellCommandNotFound not_found = { .name = program->program.parsed };
+
+			return (ShellProcessProgramResult){ .type =
+				                                    ShellProcessProgramResultTypeCommandNotFound,
+				                                .data = { .not_found = not_found } };
+		}
 		default: {
 			return (ShellProcessProgramResult){
 				.type = ShellProcessProgramResultTypeError,
 				.data = { .error = TSTR_LIT("[INTERNAL] invalid command type") }
 			};
-			break;
 		}
 	}
-
-	free_shell_arguments(&program->args);
-	free_shell_redirect_settings(&program->settings);
-
-	ShellCommandNotFound not_found = { .name = program->program.parsed };
-
-	return (ShellProcessProgramResult){ .type = ShellProcessProgramResultTypeCommandNotFound,
-		                                .data = { .not_found = not_found } };
 }
 
 ShellParseDataResult shell_parse_data(tstr_view input, const ShellHandle shell) {
