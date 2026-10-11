@@ -642,6 +642,9 @@ static void shell_execute_command_in_subshell(const ShellCommand* const command,
                                    .settings = &(command->settings),
                                    .pipe_state = pipe_state};
 
+			// TODO(Totto): should we read history state for subshells too?
+			//  probably yes, but we have no tests, that demand that
+
 			pthread_t thread_id;
 
 			int res =
@@ -1084,6 +1087,38 @@ static void shell_repl_step(ShellState* state) {
 	RETURNS_VOID free_shell_input_ok_result(data);
 }
 
+static void shell_populate_history(ShellState* state) {
+
+	const char* const histfile_env = getenv("HISTFILE");
+
+	if(histfile_env == NULL) {
+		return;
+	}
+
+	tstr file = tstr_from(histfile_env);
+
+	RTTIAnnotatedValue state_rtti = TRTTI_ANNOTATED_VALUE_GET(ShellState, state);
+
+	tstr result =
+	    read_history_to_file(&file, shell_virtual_fn_sync_read_history_file_impl_cb, state_rtti);
+
+	tstr_free(&file);
+
+	if(!tstr_is_null(&result)) {
+		RETURNS_VOID shell_global_exit(state, ExitCodeGenericError);
+
+		RETURNS_VOID shell_print_error("[INTERNAL] history file population failed\n");
+		return;
+	}
+
+	state->global.history_state.last_append_idx = TVEC_LENGTH(tstr, state->global.history.array);
+}
+
+static void shell_populate_state(ShellState* state) {
+
+	RETURNS_VOID shell_populate_history(state);
+}
+
 typedef enum : uint8_t {
 	ShellSetupResultTypeOk = 0,
 	ShellSetupResultTypeError,
@@ -1152,6 +1187,8 @@ static ShellSetupResult shell_setup_repl(const char* const program_name) {
 					.history_state = {.last_append_idx = 0},
 				},
 	};
+
+	RETURNS_VOID shell_populate_state(&state);
 
 	return (ShellSetupResult){ .type = ShellSetupResultTypeOk, .data = { .ok = state } };
 }
