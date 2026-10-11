@@ -1,0 +1,7 @@
+echo b
+history -w .test
+history
+history -a .test
+history -a .test
+history -a .test
+history -a .test
