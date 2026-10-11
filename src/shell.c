@@ -23,10 +23,15 @@ typedef struct {
 } CommandState;
 
 typedef struct {
+	size_t last_append_idx;
+} ShellHistorySaveState;
+
+typedef struct {
 	bool alive;
 	ExitCode result;
 	tstr cwd;
 	ShellHistory history;
+	ShellHistorySaveState history_state;
 } ShellInstanceState;
 
 typedef struct {
@@ -88,6 +93,22 @@ static bool shell_instance_add_to_history(ShellInstanceState* state, tstr comman
 	}
 
 	return true;
+}
+
+static tstr shell_instance_append_history_to_file(ShellInstanceState* state, const tstr* file) {
+
+	const size_t length = TVEC_LENGTH(tstr, state->history.array);
+
+	tstr result =
+	    append_history_to_file(&(state->history), file, state->history_state.last_append_idx);
+
+	if(!tstr_is_null(&result)) {
+		return result;
+	}
+
+	state->history_state.last_append_idx = length;
+
+	return tstr_null();
 }
 
 static void shell_global_exit(ShellState* state, ExitCode code) {
@@ -168,10 +189,10 @@ static tstr shell_virtual_fn_sync_process_history_file(shell_virtual_context ctx
 			                            shell_virtual_fn_sync_read_history_file_impl_cb, ctx);
 		}
 		case HistoryProcessTypeAppend: {
-			return write_history_to_file(&(state->global.history), &(data->file), true);
+			return shell_instance_append_history_to_file(&(state->global), &(data->file));
 		}
 		case HistoryProcessTypeWrite: {
-			return write_history_to_file(&(state->global.history), &(data->file), false);
+			return write_history_to_file(&(state->global.history), &(data->file));
 		}
 		default: {
 			return TSTR_LIT("invlaid process type");
@@ -300,10 +321,10 @@ static tstr shell_virtual_fn_subshell_process_history_file(shell_virtual_context
 			                            shell_virtual_fn_subshell_read_history_file_impl_cb, ctx);
 		}
 		case HistoryProcessTypeAppend: {
-			return write_history_to_file(&(state->instance.history), &(data->file), true);
+			return shell_instance_append_history_to_file(&(state->instance), &(data->file));
 		}
 		case HistoryProcessTypeWrite: {
-			return write_history_to_file(&(state->instance.history), &(data->file), false);
+			return write_history_to_file(&(state->instance.history), &(data->file));
 		}
 		default: {
 			return TSTR_LIT("invlaid process type");
@@ -613,7 +634,8 @@ static void shell_execute_command_in_subshell(const ShellCommand* const command,
                                                    .alive = true,
                                                    .result = ExitCodeSuccess,
                                                    .cwd = cwd,
-                                                   .history = { .array = TVEC_EMPTY(tstr) }
+                                                   .history = { .array = TVEC_EMPTY(tstr) },
+												   .history_state = {.last_append_idx = 0},
                                                },
                                        },
                                    .builtin = builtin,
@@ -1125,7 +1147,10 @@ static ShellSetupResult shell_setup_repl(const char* const program_name) {
 		.global = { .alive = true,
 		            .result = ExitCodeSuccess,
 		            .cwd = cwd,
-		            .history = { .array = TVEC_EMPTY(tstr) } },
+		            .history = { .array = TVEC_EMPTY(tstr) ,
+					} ,
+					.history_state = {.last_append_idx = 0},
+				},
 	};
 
 	return (ShellSetupResult){ .type = ShellSetupResultTypeOk, .data = { .ok = state } };

@@ -52,7 +52,8 @@ NODISCARD tstr read_history_to_file(const tstr* file, read_history_to_file_cb cb
 	}
 }
 
-NODISCARD tstr write_history_to_file(const ShellHistory* history, const tstr* file, bool append) {
+NODISCARD static tstr write_history_to_file_impl(const ShellHistory* history, const tstr* file,
+                                                 bool append, size_t start_idx) {
 
 	int o_flags = O_WRONLY | O_CREAT;
 
@@ -68,7 +69,7 @@ NODISCARD tstr write_history_to_file(const ShellHistory* history, const tstr* fi
 		return TSTR_LIT("file open error");
 	}
 
-	for(size_t i = 0; i < TVEC_LENGTH(tstr, history->array); ++i) {
+	for(size_t i = start_idx; i < TVEC_LENGTH(tstr, history->array); ++i) {
 
 		const tstr* const entry = TVEC_GET_AT(tstr, &(history->array), i);
 		ASSERT(entry != NULL);
@@ -91,4 +92,14 @@ NODISCARD tstr write_history_to_file(const ShellHistory* history, const tstr* fi
 	IGNORE_RESULT close(fd);
 
 	return tstr_null();
+}
+
+NODISCARD tstr write_history_to_file(const ShellHistory* history, const tstr* file) {
+
+	return write_history_to_file_impl(history, file, false, 0);
+}
+
+NODISCARD tstr append_history_to_file(const ShellHistory* history, const tstr* file,
+                                      size_t start_idx) {
+	return write_history_to_file_impl(history, file, true, start_idx);
 }
