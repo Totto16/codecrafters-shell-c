@@ -516,6 +516,9 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 	TVEC_FREE(ShellArgument, &arguments);
 
 	if(tstr_is_null(&(current_program.program.parsed))) {
+
+		// TODO: free state before returning an error
+
 		return (ParsedPipelineResult){
 			.is_ok = false,
 			.data = { .error = TSTR_LIT("missing program at the end of a pipeline") }
