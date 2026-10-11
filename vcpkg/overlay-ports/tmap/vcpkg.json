@@ -1,0 +1,10 @@
+{
+  "name": "tmap",
+  "version": "1.0.1",
+  "dependencies": [
+    {
+      "name": "vcpkg-tool-meson",
+      "host": true
+    }
+  ]
+}

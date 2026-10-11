@@ -1,0 +1,8 @@
+add_library(tmap STATIC IMPORTED)
+
+set_target_properties(tmap PROPERTIES
+    IMPORTED_LOCATION
+        "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib/libtmap.a"
+    INTERFACE_INCLUDE_DIRECTORIES
+        "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include"
+)

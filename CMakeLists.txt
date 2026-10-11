@@ -125,3 +125,6 @@ target_link_libraries(shell PRIVATE tvec)
 
 find_package(trtti CONFIG REQUIRED)
 target_link_libraries(shell PRIVATE trtti)
+
+find_package(tmap CONFIG REQUIRED)
+target_link_libraries(shell PRIVATE tmap)

@@ -1,0 +1,13 @@
+diff --git a/meson.build b/meson.build
+index 6a274f5..c623a8e 100644
+--- a/meson.build
++++ b/meson.build
+@@ -6,7 +6,7 @@ project(
+     default_options: {
+         'buildtype': 'release',
+         'optimization': '3',
+-        'c_std': ['c23', 'c11'],
++        'c_std': ['c2x', 'c11'],
+         'warning_level': '3',
+         'werror': 'true',
+         'b_ndebug': 'if-release',

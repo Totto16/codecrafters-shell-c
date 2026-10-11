@@ -12,6 +12,9 @@
     },
     {
       "name": "trtti"
+    },
+    {
+      "name": "tmap"
     }
   ],
   "features": {
