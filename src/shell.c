@@ -121,8 +121,15 @@ static void shell_virtual_fn_sync_exit(shell_virtual_context ctx, const ExitData
 	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
 
 	if(!tstr_is_null(&(state->global.history_state.histfile))) {
-		int todso = shell_instance_append_history_to_file(&(state->global),
-		                                                  &(state->global.history_state.histfile));
+		tstr ap_res = shell_instance_append_history_to_file(
+		    &(state->global), &(state->global.history_state.histfile));
+
+		if(!tstr_is_null(&ap_res)) {
+			RETURNS_VOID shell_global_exit(state, ExitCodeGenericError);
+
+			RETURNS_VOID shell_print_error("[INTERNAL] history file final write failed\n");
+			return;
+		}
 	}
 
 	if(!data->has_code) {
@@ -596,6 +603,7 @@ static void free_shell_instance_state(ShellInstanceState* state) {
 	tstr_free(&(state->cwd));
 
 	free_shell_history(&(state->history));
+	tstr_free(&(state->history_state.histfile));
 }
 
 static void free_sub_shell_thread_state(ShellSubShellThreadState* state) {
@@ -1107,9 +1115,9 @@ static void shell_populate_history(ShellState* state) {
 	tstr result =
 	    read_history_to_file(&file, shell_virtual_fn_sync_read_history_file_impl_cb, state_rtti);
 
-	tstr_free(&file);
-
 	if(!tstr_is_null(&result)) {
+		tstr_free(&file);
+
 		RETURNS_VOID shell_global_exit(state, ExitCodeGenericError);
 
 		RETURNS_VOID shell_print_error("[INTERNAL] history file population failed\n");
@@ -1117,6 +1125,7 @@ static void shell_populate_history(ShellState* state) {
 	}
 
 	state->global.history_state.last_append_idx = TVEC_LENGTH(tstr, state->global.history.array);
+	state->global.history_state.histfile = file;
 }
 
 static void shell_populate_state(ShellState* state) {
