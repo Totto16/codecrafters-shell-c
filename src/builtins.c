@@ -643,9 +643,99 @@ static const BuiltinCommand builtin_function_cd = {
 	.help = cd_help,
 };
 
+typedef struct {
+	int dodo;
+} HistroyData;
+
+TRTTI_DECLARE_TYPE_AS_SUPPORTED(HistroyData)
+
+TRTTI_IMPLEMENTATION_FOR_TYPE(HistroyData)
+
+static ShellParseArgumentsResult history_parse_arguments(const ShellArguments* args) {
+
+	// TODO(Totto): support options to history
+
+	if(args->length == 0) {
+		HistroyData history_data = {};
+		RETURN_ARGUMENT(HistroyData, history_data);
+	}
+
+	return (ShellParseArgumentsResult){
+		.is_ok = false, .data = { .error = TSTR_LIT("history: too many arguments") }
+	};
+}
+
+static void history_free_arguments(shell_dynamic_args args) {
+	TRTTI_DESTROY(HistroyData, args);
+}
+
+static ExitCode history_invoke(shell_dynamic_args args, const ShellHandle shell, const ShellIO io) {
+	UNUSED(shell);
+	HistroyData* history_data = TRTTI_ANNOTATED_PTR_CAST(HistroyData, args);
+
+	int res = SHELL_FPINTF(stderr, "TODO: not yet implemented\n");
+	if(res < 0) {
+		RETURN_IO_ERROR("history");
+	}
+
+	// TODO
+	UNUSED(history_data);
+
+	return ExitCodeSuccess;
+}
+
+static tstr_static history_help(void) {
+	return TSTR_STATIC_LIT(
+	    "history: history [-c] [-d offset] [n] or history -anrw [filename] or history -ps arg "
+	    "[arg...]\n"
+	    "Display or manipulate the history list.\n"
+	    "\n"
+	    "Display the history list with line numbers, prefixing each modified\n"
+	    "entry with a `*'.  An argument of N lists only the last N entries.\n"
+	    "\n"
+	    "Options:\n"
+	    "  -c        clear the history list by deleting all of the entries\n"
+	    "  -d offset delete the history entry at position OFFSET. Negative\n"
+	    "            offsets count back from the end of the history list\n"
+	    "  -d start-end      delete the history entries beginning at position START\n"
+	    "            through position END.\n"
+	    "\n"
+	    "  -a        append history lines from this session to the history file\n"
+	    "  -n        read all history lines not already read from the history file\n"
+	    "            and append them to the history list\n"
+	    "  -r        read the history file and append the contents to the history\n"
+	    "            list\n"
+	    "  -w        write the current history to the history file\n"
+	    "\n"
+	    "  -p        perform history expansion on each ARG and display the result\n"
+	    "            without storing it in the history list\n"
+	    "  -s        append the ARGs to the history list as a single entry\n"
+	    "\n"
+	    "If FILENAME is given, it is used as the history file.  Otherwise,\n"
+	    "if HISTFILE has a value, that is used. If FILENAME is not supplied\n"
+	    "and HISTFILE is unset or null, the -a, -n, -r, and -w options have\n"
+	    "no effect and return success.\n"
+	    "\n"
+	    "The fc builtin also operates on the history list.\n"
+	    "\n"
+	    "If the HISTTIMEFORMAT variable is set and not null, its value is used\n"
+	    "as a format string for strftime(3) to print the time stamp associated\n"
+	    "with each displayed history entry.  No time stamps are printed otherwise.\n"
+	    "\n"
+	    "Exit Status:\n"
+	    "Returns success unless an invalid option is given or an error occurs.\n");
+}
+
+static const BuiltinCommand builtin_function_history = {
+	.name = TSTR_STATIC_LIT_CONST("history"),
+	.validator = { .parse = history_parse_arguments, .free = history_free_arguments },
+	.invoke = history_invoke,
+	.help = history_help,
+};
+
 const BuiltinCommand g_builtin_functions[] = {
 	builtin_function_exit, builtin_function_echo, builtin_function_type,
-	builtin_function_pwd,  builtin_function_cd,
+	builtin_function_pwd,  builtin_function_cd,   builtin_function_history,
 	// TODO(Totto): add help builtin
 };
 
