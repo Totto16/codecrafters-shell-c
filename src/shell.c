@@ -24,6 +24,7 @@ typedef struct {
 
 typedef struct {
 	size_t last_append_idx;
+	tstr histfile;
 } ShellHistorySaveState;
 
 typedef struct {
@@ -119,8 +120,12 @@ static void shell_virtual_fn_sync_exit(shell_virtual_context ctx, const ExitData
 
 	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
 
-	if(!data->has_code) {
+	if(!tstr_is_null(&(state->global.history_state.histfile))) {
+		int todso = shell_instance_append_history_to_file(&(state->global),
+		                                                  &(state->global.history_state.histfile));
+	}
 
+	if(!data->has_code) {
 		RETURNS_VOID shell_global_exit(state, state->command_state.exit_code);
 	} else {
 		RETURNS_VOID shell_global_exit(state, data->code);
@@ -635,7 +640,7 @@ static void shell_execute_command_in_subshell(const ShellCommand* const command,
                                                    .result = ExitCodeSuccess,
                                                    .cwd = cwd,
                                                    .history = { .array = TVEC_EMPTY(tstr) },
-												   .history_state = {.last_append_idx = 0},
+												   .history_state = {.last_append_idx = 0, .histfile = tstr_null()},
                                                },
                                        },
                                    .builtin = builtin,
@@ -1184,7 +1189,7 @@ static ShellSetupResult shell_setup_repl(const char* const program_name) {
 		            .cwd = cwd,
 		            .history = { .array = TVEC_EMPTY(tstr) ,
 					} ,
-					.history_state = {.last_append_idx = 0},
+					.history_state = {.last_append_idx = 0,.histfile = tstr_null() },
 				},
 	};
 
