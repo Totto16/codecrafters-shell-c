@@ -4,13 +4,13 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-NODISCARD bool read_history_to_file(const tstr* file, read_history_to_file_cb cb,
+NODISCARD tstr read_history_to_file(const tstr* file, read_history_to_file_cb cb,
                                     shell_virtual_context ctx) {
 
 	FILE* f_desc = fopen(tstr_cstr(file), "r");
 
-	if(f_desc) {
-		return false;
+	if(f_desc == NULL) {
+		return TSTR_LIT("file open error");
 	}
 
 	char* linebuf = NULL;
@@ -24,11 +24,17 @@ NODISCARD bool read_history_to_file(const tstr* file, read_history_to_file_cb cb
 			free(linebuf);
 
 			if(feof(f_desc) != 0) {
-				break;
+				IGNORE_RESULT fclose(f_desc);
+				return tstr_null();
 			}
 
 			IGNORE_RESULT fclose(f_desc);
-			return false;
+			return TSTR_LIT("getline error");
+		}
+
+		if(linebuf == NULL) {
+			IGNORE_RESULT fclose(f_desc);
+			return TSTR_LIT("[INTERNAL] buffer is invalid");
 		}
 
 		tstr_view line = (tstr_view){ .data = linebuf, .len = (size_t)res };
@@ -37,19 +43,16 @@ NODISCARD bool read_history_to_file(const tstr* file, read_history_to_file_cb cb
 			line = tstr_sub(line, 0, line.len - 1);
 		}
 
-		bool ok = cb(ctx, line);
-		if(!ok) {
+		tstr cb_res = cb(ctx, line);
+		if(!tstr_is_null(&cb_res)) {
 			free(linebuf);
 			IGNORE_RESULT fclose(f_desc);
-			return false;
+			return cb_res;
 		}
 	}
-
-	IGNORE_RESULT fclose(f_desc);
-	return true;
 }
 
-NODISCARD bool write_history_to_file(const ShellHistory* history, const tstr* file, bool append) {
+NODISCARD tstr write_history_to_file(const ShellHistory* history, const tstr* file, bool append) {
 
 	int o_flags = O_WRONLY | O_CREAT;
 
@@ -62,7 +65,7 @@ NODISCARD bool write_history_to_file(const ShellHistory* history, const tstr* fi
 	int fd = open(tstr_cstr(file), o_flags, OMODE_DEFAULT);
 
 	if(fd < 0) {
-		return false;
+		return TSTR_LIT("file open error");
 	}
 
 	for(size_t i = 0; i < TVEC_LENGTH(tstr, history->array); ++i) {
@@ -74,18 +77,18 @@ NODISCARD bool write_history_to_file(const ShellHistory* history, const tstr* fi
 
 		if(wres < 0) {
 			IGNORE_RESULT close(fd);
-			return false;
+			return TSTR_LIT("write error");
 		}
 
 		wres = write(fd, "\n", 1);
 
 		if(wres < 0) {
 			IGNORE_RESULT close(fd);
-			return false;
+			return TSTR_LIT("write error");
 		}
 	}
 
 	IGNORE_RESULT close(fd);
 
-	return true;
+	return tstr_null();
 }

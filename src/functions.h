@@ -49,7 +49,7 @@ typedef struct {
 	tstr file;
 } HistoryProcessData;
 
-typedef bool (*shell_fn_process_history_file)(shell_virtual_context ctx,
+typedef tstr (*shell_fn_process_history_file)(shell_virtual_context ctx,
                                               const HistoryProcessData* data);
 
 typedef struct {

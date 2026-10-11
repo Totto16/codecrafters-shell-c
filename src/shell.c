@@ -140,20 +140,24 @@ static const ShellHistory* shell_virtual_fn_sync_get_history(shell_virtual_conte
 	return &(state->global.history);
 }
 
-static bool shell_virtual_fn_sync_read_history_file_impl_cb(shell_virtual_context ctx,
+static tstr shell_virtual_fn_sync_read_history_file_impl_cb(shell_virtual_context ctx,
                                                             tstr_view entry) {
 	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
 
 	tstr arg = tstr_from_view(entry);
 
 	if(tstr_is_null(&arg)) {
-		return false;
+		return TSTR_LIT("OOM error");
 	}
 
-	return shell_virtual_fn_sync_add_to_history_impl(state, arg);
+	if(!shell_virtual_fn_sync_add_to_history_impl(state, arg)) {
+		return TSTR_LIT("history add error");
+	}
+
+	return tstr_null();
 }
 
-static bool shell_virtual_fn_sync_process_history_file(shell_virtual_context ctx,
+static tstr shell_virtual_fn_sync_process_history_file(shell_virtual_context ctx,
                                                        const HistoryProcessData* const data) {
 
 	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
@@ -170,7 +174,7 @@ static bool shell_virtual_fn_sync_process_history_file(shell_virtual_context ctx
 			return write_history_to_file(&(state->global.history), &(data->file), false);
 		}
 		default: {
-			return false;
+			return TSTR_LIT("invlaid process type");
 		}
 	}
 }
@@ -268,20 +272,24 @@ static const ShellHistory* shell_virtual_fn_subshell_get_history(shell_virtual_c
 	return &(state->instance.history);
 }
 
-static bool shell_virtual_fn_subshell_read_history_file_impl_cb(shell_virtual_context ctx,
+static tstr shell_virtual_fn_subshell_read_history_file_impl_cb(shell_virtual_context ctx,
                                                                 tstr_view entry) {
 	ShellSubShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellSubShellState, ctx);
 
 	tstr arg = tstr_from_view(entry);
 
 	if(tstr_is_null(&arg)) {
-		return false;
+		return TSTR_LIT("OOM error");
 	}
 
-	return shell_virtual_fn_subshell_add_to_history_impl(state, arg);
+	if(!shell_virtual_fn_subshell_add_to_history_impl(state, arg)) {
+		return TSTR_LIT("history add error");
+	}
+
+	return tstr_null();
 }
 
-static bool shell_virtual_fn_subshell_process_history_file(shell_virtual_context ctx,
+static tstr shell_virtual_fn_subshell_process_history_file(shell_virtual_context ctx,
                                                            const HistoryProcessData* const data) {
 
 	ShellSubShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellSubShellState, ctx);
@@ -298,7 +306,7 @@ static bool shell_virtual_fn_subshell_process_history_file(shell_virtual_context
 			return write_history_to_file(&(state->instance.history), &(data->file), false);
 		}
 		default: {
-			return false;
+			return TSTR_LIT("invlaid process type");
 		}
 	}
 }

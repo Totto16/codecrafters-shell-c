@@ -188,12 +188,17 @@ static void echo_free_arguments(shell_dynamic_args args) {
 		return ExitCodeIOError; \
 	} while(false)
 
-#define RETURN_IMPL_ERROR(name, msg) \
+#define PRINT_ERROR_MESSAGE(name, msg, ...) \
 	do { \
-		int fres = SHELL_FPINTF(stderr, "%s: [INTERNAL] Implementation Error: %s\n", name, msg); \
+		int fres = SHELL_FPINTF(stderr, msg, __VA_ARGS__); \
 		if(fres < 0) { \
 			RETURN_IO_ERROR(name); \
 		} \
+	} while(false)
+
+#define RETURN_IMPL_ERROR(name, msg) \
+	do { \
+		PRINT_ERROR_MESSAGE(name, "%s: [INTERNAL] Implementation Error: %s\n", name, msg); \
 		return ExitCodeImplementationError; \
 	} while(false)
 
@@ -793,10 +798,12 @@ static ExitCode history_invoke(shell_dynamic_args args, const ShellHandle shell,
 			return ExitCodeSuccess;
 		}
 		case HistoryModeProcessFile: {
-			const bool ok =
+			const tstr process_res =
 			    shell.function.process_history_file(shell.context, &(history_data->data.process));
 
-			if(!ok) {
+			if(!tstr_is_null(&process_res)) {
+				PRINT_ERROR_MESSAGE("history", "history: " TSTR_FMT "\n",
+				                    TSTR_FMT_ARGS(process_res));
 				RETURN_IMPL_ERROR("history", "history process error");
 			}
 			return ExitCodeSuccess;
