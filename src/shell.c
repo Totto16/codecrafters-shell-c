@@ -687,7 +687,7 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 				}
 
 				if(WIFEXITED(status)) {
-					uint8_t exit_status = WEXITSTATUS(status);
+					uint8_t exit_status = (uint8_t)WEXITSTATUS(status);
 					// this is only needed for pipefail
 					UNUSED(exit_status);
 				} else if(WIFSIGNALED(status)) {

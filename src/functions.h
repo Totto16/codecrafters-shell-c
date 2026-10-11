@@ -37,8 +37,9 @@ typedef struct {
 	shell_virtual_context context;
 } ShellHandle;
 
-typedef int (*io_fprintf)(shell_io_context ctx, FILE* restrict stream, const char* restrict format,
-                          ...);
+typedef __attribute__((format(printf, 3, 4))) int (*io_fprintf)(shell_io_context ctx,
+                                                                FILE* restrict stream,
+                                                                const char* restrict format, ...);
 
 typedef struct {
 	io_fprintf fprintf;

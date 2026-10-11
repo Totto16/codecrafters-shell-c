@@ -150,7 +150,7 @@ static void free_execv_args(char** const args) {
 	free(args);
 }
 
-__attribute__((format(printf, 2, 3))) NORETURN static void
+NORETURN __attribute__((format(printf, 2, 3))) static void
 exe_report_error(ExitCode code, const char* message, ...) {
 
 	va_list args;
@@ -384,7 +384,7 @@ ShellExecuteSyncResult invoke_executable_synchronous(const tstr* path,
 	}
 
 	if(WIFEXITED(status)) {
-		uint8_t exit_status = WEXITSTATUS(status);
+		uint8_t exit_status = (uint8_t)WEXITSTATUS(status);
 		return (ShellExecuteSyncResult){ .type = ShellExecuteSyncResultTypeExit,
 			                             .data = { .exit = exit_status } };
 	} else if(WIFSIGNALED(status)) {
