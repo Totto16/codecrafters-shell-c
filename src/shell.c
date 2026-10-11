@@ -34,6 +34,10 @@ typedef struct {
 	ShellInstanceState global;
 } ShellState;
 
+TRTTI_DECLARE_TYPE_AS_SUPPORTED(ShellState)
+
+TRTTI_IMPLEMENTATION_FOR_TYPE(ShellState)
+
 static tstr shell_get_prompt(const ShellState* const state) {
 
 	// TODO(Totto): support setting the prompt dynamically
@@ -76,7 +80,7 @@ static void shell_global_exit(ShellState* state, ExitCode code) {
 
 static void shell_virtual_fn_sync_exit(shell_virtual_context ctx, const ExitData* data) {
 
-	ShellState* state = ctx;
+	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
 
 	if(!data->has_code) {
 
@@ -88,7 +92,7 @@ static void shell_virtual_fn_sync_exit(shell_virtual_context ctx, const ExitData
 
 static tstr_view shell_virtual_fn_sync_get_current_working_directory(shell_virtual_context ctx) {
 
-	ShellState* state = ctx;
+	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
 
 	return tstr_as_view(&(state->global.cwd));
 }
@@ -96,7 +100,7 @@ static tstr_view shell_virtual_fn_sync_get_current_working_directory(shell_virtu
 static bool shell_virtual_fn_sync_set_current_working_directory(shell_virtual_context ctx,
                                                                 const tstr* normalized_cwd) {
 
-	ShellState* state = ctx;
+	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
 
 	if(!path_is_absolute(tstr_as_view(normalized_cwd))) {
 		return false;
@@ -134,9 +138,13 @@ typedef struct {
 	ShellInstanceState instance;
 } ShellSubShellState;
 
+TRTTI_DECLARE_TYPE_AS_SUPPORTED(ShellSubShellState)
+
+TRTTI_IMPLEMENTATION_FOR_TYPE(ShellSubShellState)
+
 static void shell_virtual_fn_subshell_exit(shell_virtual_context ctx, const ExitData* data) {
 
-	ShellSubShellState* state = ctx;
+	ShellSubShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellSubShellState, ctx);
 
 	if(!data->has_code) {
 		// TODO(Totto): add this to the instance state, once we support "&&" "||" and ";"
@@ -151,7 +159,7 @@ static void shell_virtual_fn_subshell_exit(shell_virtual_context ctx, const Exit
 static tstr_view
 shell_virtual_fn_subshell_get_current_working_directory(shell_virtual_context ctx) {
 
-	ShellSubShellState* state = ctx;
+	ShellSubShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellSubShellState, ctx);
 
 	return tstr_as_view(&(state->instance.cwd));
 }
@@ -159,7 +167,7 @@ shell_virtual_fn_subshell_get_current_working_directory(shell_virtual_context ct
 static bool shell_virtual_fn_subshell_set_current_working_directory(shell_virtual_context ctx,
                                                                     const tstr* normalized_cwd) {
 
-	ShellSubShellState* state = ctx;
+	ShellSubShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellSubShellState, ctx);
 
 	if(!path_is_absolute(tstr_as_view(normalized_cwd))) {
 		return false;
@@ -273,7 +281,8 @@ static void shell_execute_command_synchronous(const ShellCommand* const command,
 		case ShellCommandTypeBuiltin: {
 			const ShellCommandBuiltin* builtin = &(command->data.builtin);
 
-			ShellHandle shell_handle = SHELL_HANDLE_SYNCHRONOUS(state);
+			RTTIAnnotatedValue state_rtti = TRTTI_ANNOTATED_VALUE_GET(ShellState, state);
+			ShellHandle shell_handle = SHELL_HANDLE_SYNCHRONOUS(state_rtti);
 
 			ExitCode command_exit_code = invoke_shell_builtin_in_current_context(
 			    builtin, shell_handle, &(command->settings));
@@ -338,13 +347,19 @@ typedef struct {
 	const ShellPipeState* pipe_state;
 } ShellSubShellThreadState;
 
-static void* shell_subshell_builtin_thread_entry(void* arg) {
+TRTTI_DECLARE_TYPE_AS_SUPPORTED(ShellSubShellThreadState)
 
-	ShellSubShellThreadState* state = arg;
+TRTTI_IMPLEMENTATION_FOR_TYPE(ShellSubShellThreadState)
+
+static void* shell_subshell_builtin_thread_entry(RTTIAnnotatedPtr arg) {
+
+	ShellSubShellThreadState* state = TRTTI_ANNOTATED_PTR_CAST(ShellSubShellThreadState, arg);
 
 	ShellSubShellState* subshell_state = &(state->state);
 
-	ShellHandle shell_handle = SHELL_HANDLE_SUBSHELL(subshell_state);
+	RTTIAnnotatedValue subshell_state_rtti =
+	    TRTTI_ANNOTATED_VALUE_GET(ShellSubShellState, subshell_state);
+	ShellHandle shell_handle = SHELL_HANDLE_SUBSHELL(subshell_state_rtti);
 
 	ExitCode command_exit_code = invoke_shell_builtin_in_subshell(
 	    state->builtin, shell_handle, state->settings, state->pipe_state);
@@ -388,7 +403,7 @@ static void free_sub_shell_thread_state(ShellSubShellThreadState* state) {
 
 	shell_destroy_instance_state(&state->state.instance);
 
-	free(state);
+	TRTTI_DESTROY(ShellSubShellThreadState, state);
 }
 
 static void shell_execute_command_in_subshell(const ShellCommand* const command,
@@ -399,7 +414,7 @@ static void shell_execute_command_in_subshell(const ShellCommand* const command,
 		case ShellCommandTypeBuiltin: {
 			const ShellCommandBuiltin* builtin = &(command->data.builtin);
 
-			ShellSubShellThreadState* thread_state = malloc(sizeof(ShellSubShellThreadState));
+			ShellSubShellThreadState* thread_state = TRTTI_ALLOC(ShellSubShellThreadState);
 
 			if(thread_state == NULL) {
 				*result =
@@ -765,7 +780,7 @@ pipeline_cleanup:
 	free_shell_pipe_info(&pipe_info_array);
 }
 
-void shell_repl_step(ShellState* state) {
+static void shell_repl_step(ShellState* state) {
 
 	if(!shell_process_input_state(state)) {
 
@@ -796,7 +811,8 @@ void shell_repl_step(ShellState* state) {
 		return;
 	}
 
-	ShellHandle shell_handle = SHELL_HANDLE_SYNCHRONOUS(state);
+	RTTIAnnotatedValue state_rtti = TRTTI_ANNOTATED_VALUE_GET(ShellState, state);
+	ShellHandle shell_handle = SHELL_HANDLE_SYNCHRONOUS(state_rtti);
 
 	ShellInputOkResult data = input.data.ok;
 	ShellParseDataResult parse = shell_parse_data(INPUT_DATA_VIEW(data), shell_handle);

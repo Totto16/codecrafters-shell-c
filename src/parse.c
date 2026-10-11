@@ -775,14 +775,14 @@ ShellParseDataResult shell_parse_data(tstr_view input, const ShellHandle shell) 
 				break;
 			}
 			case ShellProcessProgramResultTypeError: {
-				return (ShellParseDataResult){ .type = ShellParseDataResultTypeError,
-					                           .data = { .error = TSTR_LIT(
-					                                         "[INTERNAL] wrong error type") } };
-			}
-			default: {
 				// TODO(Totto): collect errors much like command not found, not just report one
 				return (ShellParseDataResult){ .type = ShellParseDataResultTypeError,
 					                           .data = { .error = process_res.data.error } };
+			}
+			default: {
+				return (ShellParseDataResult){ .type = ShellParseDataResultTypeError,
+					                           .data = { .error = TSTR_LIT(
+					                                         "[INTERNAL] wrong error type") } };
 			}
 		}
 	}

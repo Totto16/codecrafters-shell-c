@@ -11,7 +11,7 @@ TVEC_IMPLEMENT_VEC_TYPE(ShellPipeInfo)
 
 #define RETURN_ARGUMENT(Type, value) \
 	do { \
-		Type* data = malloc(sizeof(Type)); \
+		Type* data = TRTTI_ALLOC(Type); \
 		if(data == NULL) { \
 			return (ShellParseArgumentsResult){ \
 				.is_ok = false, .data = { .error = TSTR_LIT("OOM in argument allocation") } \
@@ -57,12 +57,12 @@ static ShellParseArgumentsResult exit_parse_arguments(const ShellArguments* args
 }
 
 static void exit_free_arguments(shell_dynamic_args args) {
-	free(args);
+	TRTTI_DESTROY(ExitData, args);
 }
 
 static ExitCode exit_invoke(shell_dynamic_args args, const ShellHandle shell, const ShellIO io) {
 	UNUSED(io);
-	const ExitData* const exit_data = args;
+	const ExitData* const exit_data = TRTTI_ANNOTATED_PTR_CAST(ExitData, args);
 
 	shell.function.exit(shell.context, exit_data);
 	return ExitCodeSuccess;
@@ -97,6 +97,10 @@ typedef struct {
 	bool escapes;
 	EchoArguments args;
 } EchoData;
+
+TRTTI_DECLARE_TYPE_AS_SUPPORTED(EchoData)
+
+TRTTI_IMPLEMENTATION_FOR_TYPE(EchoData)
 
 static ShellParseArgumentsResult echo_parse_arguments(const ShellArguments* args) {
 
@@ -166,19 +170,19 @@ static void free_echo_arguments(EchoArguments* args) {
 }
 
 static void echo_free_arguments(shell_dynamic_args args) {
-	EchoData* echo_data = args;
+	EchoData* echo_data = TRTTI_ANNOTATED_PTR_CAST(EchoData, args);
 
 	free_echo_arguments(&(echo_data->args));
 
-	free(args);
+	TRTTI_DESTROY(EchoData, args);
 }
 
 #define SHELL_FPINTF(...) io.function.fprintf(io.context, __VA_ARGS__)
 
 #define RETURN_IO_ERROR(name) \
 	do { \
-		int res = SHELL_FPINTF(stderr, "%s: IO Error\n", name); \
-		if(res < 0) { \
+		int fres_io = SHELL_FPINTF(stderr, "%s: IO Error\n", name); \
+		if(fres_io < 0) { \
 			/* Note: we already have an error, so no reporting possible here */ \
 		} \
 		return ExitCodeIOError; \
@@ -186,8 +190,8 @@ static void echo_free_arguments(shell_dynamic_args args) {
 
 #define RETURN_IMPL_ERROR(name, msg) \
 	do { \
-		int res = SHELL_FPINTF(stderr, "%s: [INTERNAL] Implementation Error: %s\n", name, msg); \
-		if(res < 0) { \
+		int fres = SHELL_FPINTF(stderr, "%s: [INTERNAL] Implementation Error: %s\n", name, msg); \
+		if(fres < 0) { \
 			RETURN_IO_ERROR(name); \
 		} \
 		return ExitCodeImplementationError; \
@@ -195,7 +199,7 @@ static void echo_free_arguments(shell_dynamic_args args) {
 
 static ExitCode echo_invoke(shell_dynamic_args args, const ShellHandle shell, const ShellIO io) {
 	UNUSED(shell);
-	const EchoData* const echo_data = args;
+	const EchoData* const echo_data = TRTTI_ANNOTATED_PTR_CAST(EchoData, args);
 
 	for(size_t i = 0; i < TVEC_LENGTH(EchoArgument, echo_data->args); ++i) {
 
@@ -287,6 +291,10 @@ typedef struct {
 	TypeArguments args;
 } TypeData;
 
+TRTTI_DECLARE_TYPE_AS_SUPPORTED(TypeData)
+
+TRTTI_IMPLEMENTATION_FOR_TYPE(TypeData)
+
 static ShellParseArgumentsResult type_parse_arguments(const ShellArguments* args) {
 
 	if(args->length == 0) {
@@ -326,11 +334,11 @@ static void free_type_arguments(TypeArguments* args) {
 }
 
 static void type_free_arguments(shell_dynamic_args args) {
-	TypeData* type_data = args;
+	TypeData* type_data = TRTTI_ANNOTATED_PTR_CAST(TypeData, args);
 
 	free_type_arguments(&(type_data->args));
 
-	free(args);
+	TRTTI_DESTROY(TypeData, args);
 }
 
 static ExitCode type_invoke(shell_dynamic_args args, const ShellHandle shell, const ShellIO io) {
@@ -435,6 +443,10 @@ typedef struct {
 	Monostate _unused;
 } PwdData;
 
+TRTTI_DECLARE_TYPE_AS_SUPPORTED(PwdData)
+
+TRTTI_IMPLEMENTATION_FOR_TYPE(PwdData)
+
 static ShellParseArgumentsResult pwd_parse_arguments(const ShellArguments* args) {
 
 	// TODO(Totto): support options to pwd
@@ -448,7 +460,7 @@ static ShellParseArgumentsResult pwd_parse_arguments(const ShellArguments* args)
 }
 
 static void pwd_free_arguments(shell_dynamic_args args) {
-	free(args);
+	TRTTI_DESTROY(PwdData, args);
 }
 
 static ExitCode pwd_invoke(shell_dynamic_args args, const ShellHandle shell, const ShellIO io) {
@@ -496,6 +508,10 @@ typedef struct {
 	tstr_view path;
 } CdData;
 
+TRTTI_DECLARE_TYPE_AS_SUPPORTED(CdData)
+
+TRTTI_IMPLEMENTATION_FOR_TYPE(CdData)
+
 static ShellParseArgumentsResult cd_parse_arguments(const ShellArguments* args) {
 
 	// TODO(Totto): support options to cd
@@ -518,11 +534,11 @@ static ShellParseArgumentsResult cd_parse_arguments(const ShellArguments* args) 
 }
 
 static void cd_free_arguments(shell_dynamic_args args) {
-	free(args);
+	TRTTI_DESTROY(CdData, args);
 }
 
 static ExitCode cd_invoke(shell_dynamic_args args, const ShellHandle shell, const ShellIO io) {
-	CdData* cd_data = args;
+	CdData* cd_data = TRTTI_ANNOTATED_PTR_CAST(CdData, args);
 
 	tstr_view cwd = shell.function.get_current_working_directory(shell.context);
 
@@ -657,13 +673,17 @@ typedef struct {
 	ShellIOContextState stderr;
 } ShellIOContext;
 
-static int shell_io_fn_fprintf(shell_io_context ctx, FILE* restrict stream,
-                               const char* restrict format, ...) {
+TRTTI_DECLARE_TYPE_AS_SUPPORTED(ShellIOContext)
+
+TRTTI_IMPLEMENTATION_FOR_TYPE(ShellIOContext)
+
+__attribute__((format(printf, 3, 4))) static int
+shell_io_fn_fprintf(shell_io_context ctx, FILE* restrict stream, const char* restrict format, ...) {
 	va_list args;
 	va_start(args, format);
 	int ret;
 
-	ShellIOContext* io_ctx = ctx;
+	ShellIOContext* io_ctx = TRTTI_ANNOTATED_PTR_CAST(ShellIOContext, ctx);
 
 	if(stream == stdout) {
 		if(io_ctx->stdout.type == ShellIOContextStateTypeNormal) {
@@ -702,12 +722,12 @@ static void free_shell_io_context(ShellIOContext* context) {
 
 	free_shell_io_context_state(context->stdout);
 	free_shell_io_context_state(context->stderr);
-	free(context);
+	TRTTI_DESTROY(ShellIOContext, context);
 }
 
 static ShellIO get_shell_io_in_current_context(const ShellRedirectSettings* const settings) {
 
-	ShellIOContext* context = malloc(sizeof(ShellIOContext));
+	ShellIOContext* context = TRTTI_ALLOC(ShellIOContext);
 
 	if(context == NULL) {
 		return (ShellIO){ .context = NULL, .function = { .fprintf = NULL } };

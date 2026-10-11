@@ -1,6 +1,6 @@
-add_library(tvec INTERFACE IMPORTED)
+add_library(trtti INTERFACE IMPORTED)
 
-set_target_properties(tvec PROPERTIES
+set_target_properties(trtti PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES
-    "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/src"
+    "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include"
 )

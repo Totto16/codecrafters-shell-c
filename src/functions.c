@@ -3,3 +3,5 @@
 #include "./functions.h"
 
 TVEC_IMPLEMENT_VEC_TYPE(ShellArgument)
+
+TRTTI_IMPLEMENTATION_FOR_TYPE(ExitData)

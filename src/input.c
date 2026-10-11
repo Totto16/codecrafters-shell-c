@@ -22,9 +22,10 @@ ShellInputResult shell_get_input(ShellInputState* const state) {
 			                       .data = { .error = TSTR_LIT("count is negative") } };
 	}
 
-	return (ShellInputResult){ .type = ShellInputResultTypeOk,
-		                       .data = {
-		                           .ok = { .data = (tstr_view){ .data = line, .len = count } } } };
+	return (ShellInputResult){
+		.type = ShellInputResultTypeOk,
+		.data = { .ok = { .data = (tstr_view){ .data = line, .len = (size_t)count } } }
+	};
 }
 
 #elif SHELL_USE_EDIT_LIBRARY == 1
@@ -97,7 +98,7 @@ ShellInputResult shell_get_input(ShellInputState* const state) {
 				break;
 			}
 
-			const size_t buffer_offset = current_buffer_start - data;
+			const size_t buffer_offset = (size_t)(current_buffer_start - data);
 
 			// we have more data
 			current_buffer_size += SHELL_INPUT_BUFFER_SIZE;

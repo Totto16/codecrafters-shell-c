@@ -2,15 +2,15 @@
 
 #include "./shell.h"
 
+#include <trtti/trtti.h>
 #include <tstr/tstr.h>
 #include <tvec/tvec.h>
 
-// TODO: use TRTTI
-typedef void* shell_dynamic_args;
+typedef RTTIAnnotatedPtr shell_dynamic_args;
 
-typedef void* shell_virtual_context;
+typedef RTTIAnnotatedValue shell_virtual_context;
 
-typedef void* shell_io_context;
+typedef RTTIAnnotatedPtr shell_io_context;
 
 typedef tstr_view (*shell_fn_get_current_working_directory)(shell_virtual_context ctx);
 
@@ -21,6 +21,8 @@ typedef struct {
 	bool has_code;
 	ExitCode code;
 } ExitData;
+
+TRTTI_DECLARE_TYPE_AS_SUPPORTED(ExitData)
 
 typedef void (*shell_fn_exit)(shell_virtual_context ctx, const ExitData* data);
 
