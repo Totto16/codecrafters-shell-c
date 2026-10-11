@@ -77,6 +77,8 @@ static void shell_exit(ShellInstanceState* state, ExitCode code) {
 
 static bool shell_instance_add_to_history(ShellInstanceState* state, tstr_view command) {
 
+	// NOTE: we don't handle "duplicates" (bytewise same strings)
+
 	tstr arg = tstr_from_view(command);
 
 	if(tstr_is_null(&arg)) {
@@ -109,9 +111,18 @@ static void shell_virtual_fn_sync_exit(shell_virtual_context ctx, const ExitData
 	}
 }
 
+static bool shell_add_to_input_history(tstr_view command);
+
 static bool shell_virtual_fn_sync_add_to_history(shell_virtual_context ctx, tstr_view command) {
 
 	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
+
+	// note only doing this in the global shell!
+	bool ok = shell_add_to_input_history(command);
+
+	if(!ok) {
+		return false;
+	}
 
 	return shell_instance_add_to_history(&(state->global), command);
 }
@@ -991,6 +1002,8 @@ static ShellSetupResult shell_setup_repl(const char* const program_name) {
 			                       .data = { .error = TSTR_LIT("readline init error") } };
 	}
 
+	using_history();
+
 	// TODO(Totto): setup custom readline behaviour
 	//  this includes: signal handling, tab completion, history
 
@@ -1022,6 +1035,43 @@ static ShellSetupResult shell_setup_repl(const char* const program_name) {
 	return (ShellSetupResult){ .type = ShellSetupResultTypeOk, .data = { .ok = state } };
 }
 
+#if SHELL_USE_EDIT_LIBRARY == 0
+static bool shell_add_to_input_history(tstr_view command) {
+	// TODO: implement
+	UNUSED(command);
+	return true;
+}
+static void free_input_history(ShellState* state) {
+	// TODO: implement
+	UNUSED(state);
+}
+#elif SHELL_USE_EDIT_LIBRARY == 1
+static bool shell_add_to_input_history(tstr_view command) {
+	tstr arg = tstr_from_view(command);
+
+	if(tstr_is_null(&arg)) {
+		return false;
+	}
+
+	RETURNS_VOID add_history(tstr_cstr(&arg));
+	return true;
+}
+static void free_input_history(ShellState* state) {
+	UNUSED(state);
+	clear_history();
+}
+#else
+static bool shell_add_to_input_history(tstr_view command) {
+	// TODO: implement
+	UNUSED(command);
+	return true;
+}
+static void free_input_history(ShellState* state) {
+	// TODO: implement
+	UNUSED(state);
+}
+#endif
+
 static void free_shell_state(ShellState* state) {
 
 	free_shell_instance_state(&(state->global));
@@ -1030,6 +1080,8 @@ static void free_shell_state(ShellState* state) {
 	el_end(state->input_state.el);
 	shell_cleanup_old_prompt(state);
 #endif
+
+	free_input_history(state);
 }
 
 #if SHELL_USE_EDIT_LIBRARY == 0

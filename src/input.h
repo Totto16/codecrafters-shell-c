@@ -12,6 +12,7 @@
 	#include <histedit.h>
 #elif SHELL_USE_EDIT_LIBRARY == 1
 	#include <readline/readline.h>
+	#include <readline/history.h>
 #elif SHELL_USE_EDIT_LIBRARY == 2
 // NOthing to include
 #else

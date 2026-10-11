@@ -738,6 +738,7 @@ ShellParseDataResult shell_parse_data(tstr_view input, const ShellHandle shell) 
 			                           .data = { .error = program_res.data.error } };
 	}
 
+	// TODO: don't add empty entries
 	bool ok = shell.function.add_to_history(shell.context, input);
 	if(!ok) {
 		// move program_res.data.error ownership to the ShellParseDataResult struct
