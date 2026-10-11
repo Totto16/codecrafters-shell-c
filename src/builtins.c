@@ -644,20 +644,46 @@ static const BuiltinCommand builtin_function_cd = {
 };
 
 typedef struct {
-	int todo;
-} HistroyData;
+	bool has_limit;
+	size_t limit;
+} HistoryData;
 
-TRTTI_DECLARE_TYPE_AS_SUPPORTED(HistroyData)
+TRTTI_DECLARE_TYPE_AS_SUPPORTED(HistoryData)
 
-TRTTI_IMPLEMENTATION_FOR_TYPE(HistroyData)
+TRTTI_IMPLEMENTATION_FOR_TYPE(HistoryData)
 
 static ShellParseArgumentsResult history_parse_arguments(const ShellArguments* args) {
 
 	// TODO(Totto): support options to history
 
 	if(args->length == 0) {
-		HistroyData history_data = {};
-		RETURN_ARGUMENT(HistroyData, history_data);
+		HistoryData history_data = { .has_limit = false, .limit = 0 };
+		RETURN_ARGUMENT(HistoryData, history_data);
+	}
+
+	if(args->length == 1) {
+		const ShellArgument* const arg1 = TVEC_GET_AT(ShellArgument, args, 0);
+		ASSERT(arg1 != NULL);
+
+		int result = 0;
+		bool ok = tstr_view_to_int(tstr_as_view(&(arg1->parsed)), &result);
+
+		if(!ok) {
+			return (ShellParseArgumentsResult){
+				.is_ok = false,
+				.data = { .error = TSTR_LIT("Invalid argument for history: [n]\nNot a number") }
+			};
+		}
+
+		if(result < 0 || (size_t)result > SIZE_MAX) {
+			return (ShellParseArgumentsResult){
+				.is_ok = false,
+				.data = { .error = TSTR_LIT(
+				              "Invalid argument for history: [n]\nNumber out of range") }
+			};
+		}
+		HistoryData history_data = { .has_limit = true, .limit = (size_t)result };
+		RETURN_ARGUMENT(HistoryData, history_data);
 	}
 
 	return (ShellParseArgumentsResult){
@@ -666,22 +692,33 @@ static ShellParseArgumentsResult history_parse_arguments(const ShellArguments* a
 }
 
 static void history_free_arguments(shell_dynamic_args args) {
-	TRTTI_DESTROY(HistroyData, args);
+	TRTTI_DESTROY(HistoryData, args);
 }
 
 static ExitCode history_invoke(shell_dynamic_args args, const ShellHandle shell, const ShellIO io) {
 	UNUSED(shell);
-	HistroyData* history_data = TRTTI_ANNOTATED_PTR_CAST(HistroyData, args);
+	HistoryData* history_data = TRTTI_ANNOTATED_PTR_CAST(HistoryData, args);
 
 	const ShellHistory* const history = shell.function.get_history(shell.context);
 
 	if(history == NULL) {
 		RETURN_IMPL_ERROR("history", "history get error");
 	}
-	// TODO
-	UNUSED(history_data);
 
-	for(size_t i = 0; i < TVEC_LENGTH(tstr, history->array); ++i) {
+	const size_t history_length = TVEC_LENGTH(tstr, history->array);
+
+	size_t min_history = 0;
+	if(history_data->has_limit) {
+		if(history_data->limit < history_length) {
+			min_history = history_length - history_data->limit;
+		}
+	}
+
+	for(size_t i = 0; i < history_length; ++i) {
+
+		if(i < min_history) {
+			continue;
+		}
 
 		const tstr* const entry = TVEC_GET_AT(tstr, &(history->array), i);
 		ASSERT(entry != NULL);
