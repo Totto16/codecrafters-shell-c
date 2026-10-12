@@ -24,11 +24,11 @@ fi
 # - Edit .codecrafters/compile.sh to change how your program compiles remotely
 (
   cd "$(dirname "$0")" # Ensure compile steps are run within the repository directory
-  cmake -B "$BUILD_DIR" -S . -DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON "-DCMAKE_BUILD_TYPE=$BUILD_TYPE" -DUSE_EDIT_LIBRARY="custom"
+  cmake -B "${BUILD_DIR}_cu" -S . -DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON "-DCMAKE_BUILD_TYPE=$BUILD_TYPE" -DUSE_EDIT_LIBRARY="custom"
 
-  echo "*" >"$BUILD_DIR/.gitignore"
+  echo "*" >"${BUILD_DIR}_cu/.gitignore"
 
-  cmake --build "$BUILD_DIR"
+  cmake --build "${BUILD_DIR}_cu"
 )
 
 (
@@ -41,11 +41,11 @@ fi
 )
 (
   cd "$(dirname "$0")" # Ensure compile steps are run within the repository directory
-  cmake -B "${BUILD_DIR}_rl" -S . -DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON "-DCMAKE_BUILD_TYPE=$BUILD_TYPE" -DUSE_EDIT_LIBRARY="readline"
+  cmake -B "${BUILD_DIR}" -S . -DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON "-DCMAKE_BUILD_TYPE=$BUILD_TYPE" -DUSE_EDIT_LIBRARY="readline"
 
-  echo "*" >"${BUILD_DIR}_rl/.gitignore"
+  echo "*" >"${BUILD_DIR}/.gitignore"
 
-  cmake --build "${BUILD_DIR}_rl"
+  cmake --build "${BUILD_DIR}"
 )
 
 # Copied from .codecrafters/run.sh

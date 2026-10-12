@@ -1349,6 +1349,50 @@ NODISCARD static bool shell_setup_prompt(ShellState* state) {
 #endif
 }
 
+NODISCARD [[maybe_unused]] static Trie* shell_get_completion_trie_for_dir(const tstr* path) {
+
+	Trie* trie = initialize_trie();
+
+	if(trie == NULL) {
+		return NULL;
+	}
+
+	DIR* dir = opendir(tstr_cstr(path));
+
+	if(dir == NULL) {
+		free_trie(trie);
+		return NULL;
+	}
+
+	while(true) {
+		errno = 0;
+		struct dirent* ent = readdir(dir);
+		if(ent == NULL) {
+			if(errno != 0) {
+				// and error occurred
+				free_trie(trie);
+				IGNORE_RESULT closedir(dir);
+				return NULL;
+			}
+
+			break;
+		}
+
+		tstr_view name = tstr_view_from(ent->d_name);
+
+		bool ok = add_to_trie(trie, tstr_from_view(name));
+		if(!ok) {
+			free_trie(trie);
+			IGNORE_RESULT closedir(dir);
+			return NULL;
+		}
+	}
+
+	IGNORE_RESULT closedir(dir);
+
+	return trie;
+}
+
 NODISCARD static bool shell_add_executables_in_dir_to_completion(Trie* trie, tstr_view directory) {
 
 	tstr dir_str = tstr_from_view(directory);
@@ -1432,6 +1476,11 @@ NODISCARD [[maybe_unused]] static bool shell_populate_completion_state(ShellStat
 	if(trie == NULL) {
 		return false;
 	}
+
+	// NOTE: we never update this list, as we don#t need this, in the ideal case, we store functions
+	// about the PATH string, reindex every directory, once it gets changed and also store the mtime
+	// for all directories, we get the executables from, so that when one of them changes, we just
+	// reindex everything
 
 	// add builtins
 	for(size_t i = 0; i < BUILTIN_FUNCTION_COUNT; ++i) {
@@ -1531,6 +1580,132 @@ completion_result_array_to_rl_completion_array(TrieResultEntryArray* array,
 		                         .data = { .array = { .raw = raw_array } } };
 }
 
+typedef struct {
+	bool is_ok;
+	union {
+		tstr ok;
+		tstr error;
+	} data;
+} FileNameParentResolveResult;
+
+NODISCARD static FileNameParentResolveResult filename_resolve_parent(ShellState* state,
+                                                                     tstr_view prefix) {
+	tstr_view cwd = tstr_as_view(&state->global.cwd);
+
+	if(cwd.len == 0) {
+		return (FileNameParentResolveResult){ .is_ok = false,
+			                                  .data = { .error = TSTR_LIT("cwd get res") } };
+	}
+
+	tstr resolved_path = tstr_null();
+
+	// path_resolve_to_absolute doesn't handle empty paths, we have to do it manually, this is a
+	// choice, as other users of this API expect that
+	if(prefix.len == 0) {
+		resolved_path = path_resolve_to_absolute(cwd, (tstr_view){ .data = "a", .len = 1 });
+	} else {
+		resolved_path = path_resolve_to_absolute(cwd, prefix);
+	}
+	if(tstr_is_null(&resolved_path)) {
+		return (FileNameParentResolveResult){ .is_ok = false,
+			                                  .data = { .error = TSTR_LIT("path resolve res") } };
+	}
+
+	if(!path_is_absolute(tstr_as_view(&resolved_path))) {
+		tstr_free(&resolved_path);
+
+		return (FileNameParentResolveResult){
+			.is_ok = false, .data = { .error = TSTR_LIT("resolved path is not absolute") }
+		};
+	}
+
+	const bool is_dir = tstr_view_ends_with(tstr_as_view(&resolved_path), "/");
+
+	tstr path = path_normalize(tstr_as_view(&resolved_path));
+
+	tstr_free(&resolved_path);
+
+	if(tstr_is_null(&path)) {
+		return (FileNameParentResolveResult){ .is_ok = false,
+			                                  .data = { .error = TSTR_LIT("path normalize res") } };
+	}
+
+	if(!path_is_absolute(tstr_as_view(&path))) {
+		tstr_free(&path);
+
+		return (FileNameParentResolveResult){
+			.is_ok = false, .data = { .error = TSTR_LIT("normalized path is not absolute") }
+		};
+	}
+
+	// now get the parent path
+	if(tstr_len(&path) == 0) {
+		tstr_free(&path);
+
+		return (FileNameParentResolveResult){
+			.is_ok = false, .data = { .error = TSTR_LIT("can't get the parent path of this") }
+		};
+	}
+
+	if(is_dir) {
+		return (FileNameParentResolveResult){ .is_ok = true, .data = { .ok = path } };
+	}
+
+	tstr_view parent_view = tstr_as_view(&path);
+
+	while(true) {
+		bool end_with_slash = tstr_view_ends_with(parent_view, "/");
+		if(end_with_slash) {
+			if(parent_view.len > 1) {
+				parent_view = tstr_sub(parent_view, 0, parent_view.len - 1);
+			}
+			break;
+		}
+
+		parent_view = tstr_sub(parent_view, 0, parent_view.len - 1);
+	}
+
+	tstr parent_path = tstr_from_view(parent_view);
+	tstr_free(&path);
+
+	return (FileNameParentResolveResult){ .is_ok = true, .data = { .ok = parent_path } };
+}
+
+NODISCARD static RLCompletionResult rl_complete_filename_impl(ShellState* state, tstr_view prefix) {
+
+	// TODO: classify the type of path, absolute, relative or something else, resolve the abs
+	// prefix, and then use opendir() to list files and paths
+
+	FileNameParentResolveResult parent_res = filename_resolve_parent(state, prefix);
+
+	if(!parent_res.is_ok) {
+		return (RLCompletionResult){ .type = RLCompletionResultTypeError,
+			                         .data = { .error = parent_res.data.error } };
+	}
+
+	tstr parent_path = parent_res.data.ok;
+
+	const Trie* trie = shell_get_completion_trie_for_dir(&parent_path);
+
+	tstr_free(&parent_path);
+
+	if(trie == NULL) {
+		return (RLCompletionResult){ .type = RLCompletionResultTypeError,
+			                         .data = { .error = TSTR_LIT("Can't make trie") } };
+	}
+
+	TrieSearchResult res = search_in_trie(trie, prefix);
+
+	if(!res.is_ok) {
+		return (RLCompletionResult){ .type = RLCompletionResultTypeError,
+			                         .data = { .error = res.data.error } };
+	}
+
+	TrieResultEntryArray array = res.data.ok;
+
+	return completion_result_array_to_rl_completion_array(&array, prefix);
+}
+
 NODISCARD static RLCompletionResult
 shell_completion_function_rl_impl(ShellState* state, const char* text, int start, int end) {
 
@@ -1562,6 +1737,13 @@ shell_completion_function_rl_impl(ShellState* state, const char* text, int start
 		TrieResultEntryArray array = res.data.ok;
 
 		return completion_result_array_to_rl_completion_array(&array, string);
+	}
+
+	tstr_view before = (tstr_view){ .data = rl_line_buffer, .len = (size_t)(start - 1) };
+
+	// Note: this should be better, atm we hardcoded file path support for "cat" only
+	if(tstr_view_eq(before, "cat")) {
+		return rl_complete_filename_impl(state, string);
 	}
 
 	return (RLCompletionResult){ .type = RLCompletionResultTypeError,
