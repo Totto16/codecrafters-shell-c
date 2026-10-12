@@ -1685,7 +1685,7 @@ NODISCARD static RLCompletionResult rl_complete_filename_impl(ShellState* state,
 
 	tstr parent_path = parent_res.data.ok;
 
-	const Trie* trie = shell_get_completion_trie_for_dir(&parent_path);
+	Trie* trie = shell_get_completion_trie_for_dir(&parent_path);
 
 	tstr_free(&parent_path);
 
@@ -1697,13 +1697,18 @@ NODISCARD static RLCompletionResult rl_complete_filename_impl(ShellState* state,
 	TrieSearchResult res = search_in_trie(trie, prefix);
 
 	if(!res.is_ok) {
+
 		return (RLCompletionResult){ .type = RLCompletionResultTypeError,
 			                         .data = { .error = res.data.error } };
 	}
 
 	TrieResultEntryArray array = res.data.ok;
 
-	return completion_result_array_to_rl_completion_array(&array, prefix);
+	RLCompletionResult completion_res =
+	    completion_result_array_to_rl_completion_array(&array, prefix);
+	free_trie(trie);
+
+	return completion_res;
 }
 
 NODISCARD static RLCompletionResult
