@@ -100,7 +100,8 @@ NODISCARD Trie* initialize_trie(void) {
 // chosen arbitrary
 #define TRIE_MAX_LINEAR_SIZE 64
 
-NODISCARD static bool add_value_to_trie_hash_map_impl(TrieNodeEntryHashMap* hash_map,
+NODISCARD static bool add_value_to_trie_hash_map_impl(const TrieEntryArray* entries,
+                                                      TrieNodeEntryHashMap* hash_map,
                                                       tstr_view value, TrieNodeEntryValue entry,
                                                       size_t current_depth) {
 
@@ -236,8 +237,8 @@ NODISCARD static bool add_value_to_trie_hash_map_impl(TrieNodeEntryHashMap* hash
 
 		// call this function recursively
 
-		return add_value_to_trie_hash_map_impl(&(current_branch->data.trie.opaque->map), value,
-		                                       entry, current_depth + 1);
+		return add_value_to_trie_hash_map_impl(entries, &(current_branch->data.trie.opaque->map),
+		                                       value, entry, current_depth + 1);
 	}
 
 	TrieNodeEntryBranchLinear* linear_entry = &(current_branch->data.linear);
@@ -255,9 +256,43 @@ NODISCARD static bool add_value_to_trie_hash_map_impl(TrieNodeEntryHashMap* hash
 
 	if(array_size >= TRIE_MAX_LINEAR_SIZE) {
 
-		// TODO: re-balance this
+		TrieNodeEntryBranch new_branch = { .is_trie_branch = true,
+			                               .data = { .trie = { .opaque = NULL } } };
 
-		return false;
+		{
+			TrieNodeEntryHashMapOpaque* opaque = malloc(sizeof(TrieNodeEntryHashMapOpaque));
+			if(opaque == NULL) {
+				return false;
+			}
+			*opaque = (TrieNodeEntryHashMapOpaque){ .map = TMAP_EMPTY(TrieNodeEntryHashMap) };
+
+			new_branch.data.trie.opaque = opaque;
+		}
+
+		for(size_t i = 0; i < TVEC_LENGTH(TrieNodeEntryValue, linear_entry->entries); ++i) {
+
+			const TrieNodeEntryValue* const arg =
+			    TVEC_GET_AT(TrieNodeEntryValue, &(linear_entry->entries), i);
+			ASSERT(arg != NULL);
+
+			const TrieEntry* const entry_value = TVEC_GET_AT(TrieEntry, entries, arg->idx);
+			if(entry_value == NULL) {
+				return false;
+			}
+
+			bool ok = add_value_to_trie_hash_map_impl(entries, &(new_branch.data.trie.opaque->map),
+			                                          tstr_as_view(&(entry_value->name)), *arg,
+			                                          current_depth + 1);
+			if(!ok) {
+				return false;
+			}
+		}
+
+		TVEC_FREE(TrieNodeEntryValue, &(linear_entry->entries));
+
+		*current_branch = new_branch;
+
+		return true;
 	}
 
 	return true;
@@ -285,7 +320,8 @@ NODISCARD bool add_to_trie(Trie* trie, tstr value) {
 
 	TrieNodeEntryValue entry = { .idx = index };
 
-	return add_value_to_trie_hash_map_impl(&(trie->root.map), tstr_as_view(&value), entry, 0);
+	return add_value_to_trie_hash_map_impl(&(trie->array), &(trie->root.map), tstr_as_view(&value),
+	                                       entry, 0);
 }
 
 NODISCARD static tstr
