@@ -485,38 +485,44 @@ NODISCARD static tstr trie_add_matches_to_array_with_prefix_impl(
 
 	const TrieNodeEntryBranch* current_branch = NULL;
 	if(result->type == TrieNodeEntryTypeValue) {
-		// add the value and return
+		// if we have the exact length. add the value and return
 
-		const TrieEntry* const entry_value =
-		    TVEC_GET_AT(TrieEntry, entries, result->data.value.idx);
-		if(entry_value == NULL) {
-			return TSTR_LIT("invalid entry index");
-		}
+		if(prefix.len == (current_depth + 1)) {
 
-		TrieResultEntry entry = { .name = tstr_as_view(&(entry_value->name)) };
+			const TrieEntry* const entry_value =
+			    TVEC_GET_AT(TrieEntry, entries, result->data.value.idx);
+			if(entry_value == NULL) {
+				return TSTR_LIT("invalid entry index");
+			}
 
-		TvecResult res = TVEC_PUSH(TrieResultEntry, array, entry);
+			TrieResultEntry entry = { .name = tstr_as_view(&(entry_value->name)) };
 
-		if(res != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
-			return TSTR_LIT("OOM in argument allocation");
+			TvecResult res = TVEC_PUSH(TrieResultEntry, array, entry);
+
+			if(res != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
+				return TSTR_LIT("OOM in argument allocation");
+			}
 		}
 
 		return tstr_null();
 	} else if(result->type == TrieNodeEntryTypeBranchAndValue) {
-		// add the value an process the branch
+		// if we should add the value, add it and always process the branch
 
-		const TrieEntry* const entry_value =
-		    TVEC_GET_AT(TrieEntry, entries, result->data.branch_and_value.value.idx);
-		if(entry_value == NULL) {
-			return TSTR_LIT("invalid entry index");
-		}
+		if(prefix.len == (current_depth + 1)) {
 
-		TrieResultEntry entry = { .name = tstr_as_view(&(entry_value->name)) };
+			const TrieEntry* const entry_value =
+			    TVEC_GET_AT(TrieEntry, entries, result->data.branch_and_value.value.idx);
+			if(entry_value == NULL) {
+				return TSTR_LIT("invalid entry index");
+			}
 
-		TvecResult res = TVEC_PUSH(TrieResultEntry, array, entry);
+			TrieResultEntry entry = { .name = tstr_as_view(&(entry_value->name)) };
 
-		if(res != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
-			return TSTR_LIT("OOM in argument allocation");
+			TvecResult res = TVEC_PUSH(TrieResultEntry, array, entry);
+
+			if(res != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
+				return TSTR_LIT("OOM in argument allocation");
+			}
 		}
 
 		current_branch = &(result->data.branch_and_value.branch);
@@ -649,7 +655,6 @@ NODISCARD tstr find_common_prefix(const TrieResultEntryArray* array) {
 
 	if(array_length == 0) {
 		return tstr_null();
-		;
 	} else {
 		const TrieResultEntry* const arg0 = TVEC_GET_AT(TrieResultEntry, array, 0);
 		ASSERT(arg0 != NULL);
