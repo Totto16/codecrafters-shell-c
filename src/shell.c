@@ -1383,33 +1383,43 @@ typedef struct {
 } RLCompletionResult;
 
 NODISCARD static RLCompletionResult
-completion_result_array_to_rl_completion_array(TrieResultEntryArray* array) {
+completion_result_array_to_rl_completion_array(TrieResultEntryArray* array, tstr_view prefix) {
 
 	const size_t array_length = TVEC_LENGTH(TrieResultEntry, *array);
 
-	char** rl_array = malloc((array_length + 1) * sizeof(char*));
+	// NOTE: this array is of size (length + 2) of char*
+	// the first entry is the common prefix or NULL
+	// the end is marked by NULL
+	char** raw_array = malloc((array_length + 2) * sizeof(char*));
 
-	if(rl_array == NULL) {
+	if(raw_array == NULL) {
 		return (RLCompletionResult){ .is_ok = false,
 			                         .data = { .error = TSTR_LIT("OOM in internal allocation") } };
 	}
 
-	rl_array[array_length] = NULL;
+	{
+		tstr prefix_str = tstr_from_view(prefix);
+		raw_array[0] = strdup(tstr_cstr(&prefix_str));
+		tstr_free(&prefix_str);
+	}
+	raw_array[array_length + 1] = NULL;
 
 	for(size_t i = 0; i < array_length; ++i) {
 
 		const TrieResultEntry* const arg = TVEC_GET_AT(TrieResultEntry, array, i);
 		ASSERT(arg != NULL);
 
+		fprintf(stderr, "ENTRY: " TSTR_FMT "\n", TSV_FMT_ARGS(arg->name));
+
 		tstr name = tstr_from_view(arg->name);
 
-		rl_array[i] = strdup(tstr_cstr(&name));
+		raw_array[i + 1] = strdup(tstr_cstr(&name));
 		tstr_free(&name);
 	}
 
 	TVEC_FREE(TrieResultEntry, array);
 
-	return (RLCompletionResult){ .is_ok = true, .data = { .array = { .raw = rl_array } } };
+	return (RLCompletionResult){ .is_ok = true, .data = { .array = { .raw = raw_array } } };
 }
 
 NODISCARD static RLCompletionResult
@@ -1441,7 +1451,7 @@ shell_completion_function_rl_impl(ShellState* state, const char* text, int start
 
 		TrieResultEntryArray array = res.data.ok;
 
-		return completion_result_array_to_rl_completion_array(&array);
+		return completion_result_array_to_rl_completion_array(&array, string);
 	}
 
 	return (RLCompletionResult){ .is_ok = false,
