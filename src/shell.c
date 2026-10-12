@@ -38,14 +38,14 @@ typedef struct {
 
 typedef struct {
 	Trie* completion_trie;
-} ShelLCompletionState;
+} ShellCompletionState;
 
 typedef struct {
 	CommandState command_state;
 	const bool interactive;
 	ShellInputState input_state;
 	ShellInstanceState global;
-	ShelLCompletionState completion_state;
+	ShellCompletionState completion_state;
 } ShellState;
 
 TRTTI_DECLARE_TYPE_AS_SUPPORTED(ShellState)
@@ -1245,6 +1245,13 @@ static void free_input_history(ShellState* state) {
 }
 #endif
 
+static void free_shell_completion_state(ShellCompletionState* completion_state) {
+
+	if(completion_state->completion_trie != NULL) {
+		free_trie(completion_state->completion_trie);
+	}
+}
+
 static void free_shell_state(ShellState* state) {
 
 	free_shell_instance_state(&(state->global));
@@ -1253,6 +1260,8 @@ static void free_shell_state(ShellState* state) {
 	el_end(state->input_state.el);
 	shell_cleanup_old_prompt(state);
 #endif
+
+	free_shell_completion_state(&(state->completion_state));
 
 	free_input_history(state);
 }
@@ -1359,8 +1368,6 @@ NODISCARD [[maybe_unused]] static bool shell_populate_completion_state(ShellStat
 	return true;
 }
 
-// TODO: free completion state
-
 #if SHELL_USE_EDIT_LIBRARY == 0
 NODISCARD static bool shell_setup_completion(ShellState* state) {
 
@@ -1408,8 +1415,6 @@ completion_result_array_to_rl_completion_array(TrieResultEntryArray* array, tstr
 
 		const TrieResultEntry* const arg = TVEC_GET_AT(TrieResultEntry, array, i);
 		ASSERT(arg != NULL);
-
-		fprintf(stderr, "ENTRY: " TSTR_FMT "\n", TSV_FMT_ARGS(arg->name));
 
 		tstr name = tstr_from_view(arg->name);
 
@@ -1468,7 +1473,7 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 	    shell_completion_function_rl_impl(g_rl_internal_completion_state, text, start, end);
 
 	if(!array.is_ok) {
-		fprintf(stderr, "[DEBUG]" TSTR_FMT "\n", TSTR_FMT_ARGS(array.data.error));
+		// TODO: print the error somehow
 		tstr_free(&(array.data.error));
 		return NULL;
 	}

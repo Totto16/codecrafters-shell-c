@@ -548,9 +548,47 @@ NODISCARD TrieSearchResult search_in_trie(const Trie* trie, tstr_view prefix) {
 	return (TrieSearchResult){ .is_ok = true, .data = { .ok = array } };
 }
 
+static void free_trie_hash_map(TrieNodeEntryHashMap* map);
+
+static void free_trie_branch(TrieNodeEntryBranch* branch) {
+
+	if(branch->is_trie_branch) {
+		free_trie_hash_map(&(branch->data.trie.opaque->map));
+		free(branch->data.trie.opaque);
+	} else {
+		TVEC_FREE(TrieNodeEntryValue, &(branch->data.linear.entries));
+	}
+}
+
+static void free_trie_entry(TrieNodeEntry* entry) {
+
+	if(entry->type == TrieNodeEntryTypeValue) {
+		// Nothing to do
+	} else if(entry->type == TrieNodeEntryTypeBranchAndValue) {
+		free_trie_branch(&(entry->data.branch));
+	} else if(entry->type == TrieNodeEntryTypeBranch) {
+		free_trie_branch(&(entry->data.branch_and_value.branch));
+	}
+}
+
+static void free_trie_hash_map(TrieNodeEntryHashMap* map) {
+	TMAP_TYPENAME_ITER(TrieNodeEntryHashMap)
+	iter = TMAP_ITER_INIT(TrieNodeEntryHashMap, map);
+
+	TMAP_TYPENAME_ENTRY(TrieNodeEntryHashMap) value;
+
+	while(TMAP_ITER_NEXT(TrieNodeEntryHashMap, &iter, &value)) {
+		free_trie_entry(&value.value);
+	}
+
+	TMAP_FREE(TrieNodeEntryHashMap, map);
+}
+
 void free_trie(Trie* trie) {
-	// TODO:
+
 	TVEC_FREE(TrieEntry, &(trie->array));
+
+	free_trie_hash_map(&(trie->root.map));
 
 	free(trie);
 }
