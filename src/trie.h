@@ -9,10 +9,13 @@ typedef struct TrieImpl Trie;
 
 NODISCARD Trie* initialize_trie(void);
 
-NODISCARD bool add_to_trie(Trie* trie, tstr value);
+typedef uint32_t TrieEntryFlag;
+
+NODISCARD bool add_to_trie(Trie* trie, tstr value, TrieEntryFlag flag);
 
 typedef struct {
 	tstr_view name;
+	TrieEntryFlag flag;
 } TrieResultEntry;
 
 TVEC_DEFINE_VEC_TYPE(TrieResultEntry)

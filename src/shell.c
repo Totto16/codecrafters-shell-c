@@ -1349,7 +1349,25 @@ NODISCARD static bool shell_setup_prompt(ShellState* state) {
 #endif
 }
 
-NODISCARD [[maybe_unused]] static Trie* shell_get_completion_trie_for_dir(const tstr* path) {
+typedef enum : uint8_t {
+	// first FF bytes are for flag type
+	TrieFlagTypeNone = 0x00,
+	TrieFlagTypeBuiltin = 0x01,
+	TrieFlagTypeExecutable = 0x02,
+	TrieFlagTypeFile = 0x04,
+	//
+	TrieFlagTypeMask = 0xFF,
+} TrieFlagType;
+
+typedef enum : TrieEntryFlag {
+	// first FF bytes are for flag type
+	TrieFlagFileFlagValUnknown = 0x0100,
+	TrieFlagFileFlagValFile = 0x0200,
+	TrieFlagFileFlagValDir = 0x0400,
+} TrieFlagFile;
+
+NODISCARD [[maybe_unused]] static Trie* shell_get_completion_trie_for_dir(const tstr* path,
+                                                                          tstr_view dir_prefix) {
 
 	Trie* trie = initialize_trie();
 
@@ -1380,7 +1398,24 @@ NODISCARD [[maybe_unused]] static Trie* shell_get_completion_trie_for_dir(const 
 
 		tstr_view name = tstr_view_from(ent->d_name);
 
-		bool ok = add_to_trie(trie, tstr_from_view(name));
+		const TrieFlagFile file_type =
+		    TrieFlagTypeFile | (ent->d_type == DT_UNKNOWN ? TrieFlagFileFlagValUnknown
+		                        : ent->d_type == DT_DIR   ? TrieFlagFileFlagValDir
+		                                                  : TrieFlagFileFlagValFile);
+
+		tstr value = tstr_from_view(dir_prefix);
+
+		TStrResult res = tstr_cat_len(&value, name.data, name.len);
+
+		if(res != TStrResultOk) {
+			free_trie(trie);
+			IGNORE_RESULT closedir(dir);
+			return NULL;
+		}
+		// TODO: maybe also add an entry "<dir>/" with the dir flag and the normal "<dir>" has no
+		// dir flag set?
+
+		bool ok = add_to_trie(trie, value, file_type);
 		if(!ok) {
 			free_trie(trie);
 			IGNORE_RESULT closedir(dir);
@@ -1424,7 +1459,7 @@ NODISCARD static bool shell_add_executables_in_dir_to_completion(Trie* trie, tst
 
 		tstr_free(&executable);
 
-		bool ok = add_to_trie(trie, tstr_from_view(name));
+		bool ok = add_to_trie(trie, tstr_from_view(name), TrieFlagTypeExecutable);
 		if(!ok) {
 			return false;
 		}
@@ -1486,7 +1521,8 @@ NODISCARD [[maybe_unused]] static bool shell_populate_completion_state(ShellStat
 	for(size_t i = 0; i < BUILTIN_FUNCTION_COUNT; ++i) {
 
 		BuiltinCommand builtin_command = g_builtin_functions[i];
-		bool ok = add_to_trie(trie, tstr_from_static_tstr(builtin_command.name));
+		bool ok =
+		    add_to_trie(trie, tstr_from_static_tstr(builtin_command.name), TrieFlagTypeBuiltin);
 		if(!ok) {
 			return false;
 		}
@@ -1522,9 +1558,14 @@ typedef enum : uint8_t {
 } RLCompletionResultType;
 
 typedef struct {
+	RLCompletionArray array;
+	bool suppress_append;
+} RLCompletionOk;
+
+typedef struct {
 	RLCompletionResultType type;
 	union {
-		RLCompletionArray array;
+		RLCompletionOk ok;
 		tstr error;
 	} data;
 } RLCompletionResult;
@@ -1539,6 +1580,21 @@ completion_result_array_to_rl_completion_array(TrieResultEntryArray* array,
 		TVEC_FREE(TrieResultEntry, array);
 
 		return (RLCompletionResult){ .type = RLCompletionResultTypeEmpty, .data = {} };
+	}
+
+	bool suppress_append = false;
+
+	if(array_length == 1) {
+		const TrieResultEntry* const arg0 = TVEC_GET_AT(TrieResultEntry, array, 0);
+		ASSERT(arg0 != NULL);
+
+		uint8_t flags = (uint8_t)(arg0->flag & TrieFlagTypeMask);
+
+		if(flags == TrieFlagTypeFile) {
+			if((arg0->flag & TrieFlagFileFlagValDir) != 0) {
+				suppress_append = true;
+			}
+		}
 	}
 
 	// NOTE: this array is of size (length + 2) of char*
@@ -1577,13 +1633,19 @@ completion_result_array_to_rl_completion_array(TrieResultEntryArray* array,
 	TVEC_FREE(TrieResultEntry, array);
 
 	return (RLCompletionResult){ .type = RLCompletionResultTypeOk,
-		                         .data = { .array = { .raw = raw_array } } };
+		                         .data = { .ok = { .suppress_append = suppress_append,
+		                                           .array = { .raw = raw_array } } } };
 }
+
+typedef struct {
+	tstr abs_dir;
+	tstr_view dir_prefix;
+} FileNameParentResolveResultOk;
 
 typedef struct {
 	bool is_ok;
 	union {
-		tstr ok;
+		FileNameParentResolveResultOk ok;
 		tstr error;
 	} data;
 } FileNameParentResolveResult;
@@ -1648,13 +1710,15 @@ NODISCARD static FileNameParentResolveResult filename_resolve_parent(ShellState*
 	}
 
 	if(is_dir) {
-		return (FileNameParentResolveResult){ .is_ok = true, .data = { .ok = path } };
+		return (FileNameParentResolveResult){
+			.is_ok = true, .data = { .ok = { .abs_dir = path, .dir_prefix = prefix } }
+		};
 	}
 
 	tstr_view parent_view = tstr_as_view(&path);
 
 	while(true) {
-		bool end_with_slash = tstr_view_ends_with(parent_view, "/");
+		const bool end_with_slash = tstr_view_ends_with(parent_view, "/");
 		if(end_with_slash) {
 			if(parent_view.len > 1) {
 				parent_view = tstr_sub(parent_view, 0, parent_view.len - 1);
@@ -1668,7 +1732,24 @@ NODISCARD static FileNameParentResolveResult filename_resolve_parent(ShellState*
 	tstr parent_path = tstr_from_view(parent_view);
 	tstr_free(&path);
 
-	return (FileNameParentResolveResult){ .is_ok = true, .data = { .ok = parent_path } };
+	tstr_view dir_prefix = prefix;
+
+	while(true) {
+		if(dir_prefix.len == 0) {
+			break;
+		}
+
+		bool end_with_slash = tstr_view_ends_with(dir_prefix, "/");
+		if(end_with_slash) {
+			break;
+		}
+
+		dir_prefix = tstr_sub(dir_prefix, 0, dir_prefix.len - 1);
+	}
+
+	return (FileNameParentResolveResult){
+		.is_ok = true, .data = { .ok = { .abs_dir = parent_path, .dir_prefix = dir_prefix } }
+	};
 }
 
 NODISCARD static RLCompletionResult rl_complete_filename_impl(ShellState* state, tstr_view prefix) {
@@ -1683,11 +1764,11 @@ NODISCARD static RLCompletionResult rl_complete_filename_impl(ShellState* state,
 			                         .data = { .error = parent_res.data.error } };
 	}
 
-	tstr parent_path = parent_res.data.ok;
+	FileNameParentResolveResultOk ok_res = parent_res.data.ok;
 
-	Trie* trie = shell_get_completion_trie_for_dir(&parent_path);
+	Trie* trie = shell_get_completion_trie_for_dir(&(ok_res.abs_dir), ok_res.dir_prefix);
 
-	tstr_free(&parent_path);
+	tstr_free(&ok_res.abs_dir);
 
 	if(trie == NULL) {
 		return (RLCompletionResult){ .type = RLCompletionResultTypeError,
@@ -1778,7 +1859,15 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 		return NULL;
 	} else if(array.type == RLCompletionResultTypeOk) {
 
-		return array.data.array.raw;
+		RLCompletionOk ok = array.data.ok;
+
+		if(ok.suppress_append) {
+			rl_completion_suppress_append = 1;
+		} else {
+			rl_completion_suppress_append = 0;
+		}
+
+		return ok.array.raw;
 	} else {
 		rl_completion_suppress_append = 1;
 

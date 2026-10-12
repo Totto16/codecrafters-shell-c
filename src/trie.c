@@ -5,6 +5,7 @@
 
 typedef struct {
 	tstr name;
+	TrieEntryFlag flag;
 } TrieEntry;
 
 TVEC_DEFINE_AND_IMPLEMENT_VEC_TYPE(TrieEntry)
@@ -298,7 +299,7 @@ NODISCARD static bool add_value_to_trie_hash_map_impl(const TrieEntryArray* entr
 	return true;
 }
 
-NODISCARD bool add_to_trie(Trie* trie, tstr value) {
+NODISCARD bool add_to_trie(Trie* trie, tstr value, TrieEntryFlag flag) {
 
 	// don't support the empty command
 
@@ -309,7 +310,7 @@ NODISCARD bool add_to_trie(Trie* trie, tstr value) {
 	const size_t index = TVEC_LENGTH(TrieEntry, trie->array);
 
 	{
-		TrieEntry entry = { .name = value };
+		TrieEntry entry = { .name = value, .flag = flag };
 
 		TvecResult res = TVEC_PUSH(TrieEntry, &(trie->array), entry);
 
@@ -339,7 +340,8 @@ trie_add_matches_to_array_all_linear_impl(const TrieEntryArray* entries,
 			return TSTR_LIT("invalid entry index");
 		}
 
-		TrieResultEntry entry = { .name = tstr_as_view(&(entry_value->name)) };
+		TrieResultEntry entry = { .name = tstr_as_view(&(entry_value->name)),
+			                      .flag = entry_value->flag };
 
 		TvecResult res = TVEC_PUSH(TrieResultEntry, array, entry);
 
@@ -377,7 +379,8 @@ NODISCARD static tstr trie_add_matches_to_array_all_trie_impl(const TrieEntryArr
 				return TSTR_LIT("invalid entry index");
 			}
 
-			TrieResultEntry result_entry = { .name = tstr_as_view(&(entry_value->name)) };
+			TrieResultEntry result_entry = { .name = tstr_as_view(&(entry_value->name)),
+				                             .flag = entry_value->flag };
 
 			TvecResult res = TVEC_PUSH(TrieResultEntry, array, result_entry);
 
@@ -395,7 +398,8 @@ NODISCARD static tstr trie_add_matches_to_array_all_trie_impl(const TrieEntryArr
 				return TSTR_LIT("invalid entry index");
 			}
 
-			TrieResultEntry result_entry = { .name = tstr_as_view(&(entry_value->name)) };
+			TrieResultEntry result_entry = { .name = tstr_as_view(&(entry_value->name)),
+				                             .flag = entry_value->flag };
 
 			TvecResult res = TVEC_PUSH(TrieResultEntry, array, result_entry);
 
@@ -452,7 +456,8 @@ NODISCARD static tstr trie_add_matches_to_array_with_prefix_linear_impl(
 			return TSTR_LIT("invalid entry index");
 		}
 
-		TrieResultEntry entry = { .name = tstr_as_view(&(entry_value->name)) };
+		TrieResultEntry entry = { .name = tstr_as_view(&(entry_value->name)),
+			                      .flag = entry_value->flag };
 
 		if(!tstr_view_starts_with_view(entry.name, prefix)) {
 			continue;
@@ -495,7 +500,8 @@ NODISCARD static tstr trie_add_matches_to_array_with_prefix_impl(
 				return TSTR_LIT("invalid entry index");
 			}
 
-			TrieResultEntry entry = { .name = tstr_as_view(&(entry_value->name)) };
+			TrieResultEntry entry = { .name = tstr_as_view(&(entry_value->name)),
+				                      .flag = entry_value->flag };
 
 			TvecResult res = TVEC_PUSH(TrieResultEntry, array, entry);
 
@@ -516,7 +522,8 @@ NODISCARD static tstr trie_add_matches_to_array_with_prefix_impl(
 				return TSTR_LIT("invalid entry index");
 			}
 
-			TrieResultEntry entry = { .name = tstr_as_view(&(entry_value->name)) };
+			TrieResultEntry entry = { .name = tstr_as_view(&(entry_value->name)),
+				                      .flag = entry_value->flag };
 
 			TvecResult res = TVEC_PUSH(TrieResultEntry, array, entry);
 
@@ -564,7 +571,7 @@ NODISCARD TrieSearchResult search_in_trie(const Trie* trie, tstr_view prefix) {
 			const TrieEntry* const arg = TVEC_GET_AT(TrieEntry, &(trie->array), i);
 			ASSERT(arg != NULL);
 
-			TrieResultEntry entry = { .name = tstr_as_view(&(arg->name)) };
+			TrieResultEntry entry = { .name = tstr_as_view(&(arg->name)), .flag = arg->flag };
 
 			TvecResult res = TVEC_PUSH(TrieResultEntry, &array, entry);
 
