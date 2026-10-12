@@ -16,6 +16,7 @@
 #include "./history.h"
 #include "./input.h"
 #include "./parse.h"
+#include "./trie.h"
 #include "./utils.h"
 
 typedef struct {
@@ -36,10 +37,15 @@ typedef struct {
 } ShellInstanceState;
 
 typedef struct {
+	Trie* completion_trie;
+} ShelLCompletionState;
+
+typedef struct {
 	CommandState command_state;
 	const bool interactive;
 	ShellInputState input_state;
 	ShellInstanceState global;
+	ShelLCompletionState completion_state;
 } ShellState;
 
 TRTTI_DECLARE_TYPE_AS_SUPPORTED(ShellState)
@@ -1172,7 +1178,7 @@ static ShellSetupResult shell_setup_repl(const char* const program_name) {
 	using_history();
 
 	// TODO(Totto): setup custom readline behaviour
-	//  this includes: signal handling, tab completion, history
+	//  this includes: signal handling
 
 	ShellInputState input_state = { .prompt = tstr_null() };
 #else
@@ -1200,6 +1206,7 @@ static ShellSetupResult shell_setup_repl(const char* const program_name) {
 					} ,
 					.history_state = {.last_append_idx = 0,.histfile = tstr_null() },
 				},
+				.completion_state =  {.completion_trie = NULL }
 	};
 
 	RETURNS_VOID shell_populate_state(&state);
@@ -1318,7 +1325,7 @@ NODISCARD static bool shell_setup_prompt(ShellState* state) {
 	if(!ok) {
 		return false;
 	}
-	// TODO(TOtto): set editor, for standard shortcuts
+	// TODO(Totto): set editor, for standard shortcuts
 	// el_set(EL_EDITOR, "emacs" "vi")
 	return true;
 #elif SHELL_USE_EDIT_LIBRARY == 1
@@ -1329,6 +1336,152 @@ NODISCARD static bool shell_setup_prompt(ShellState* state) {
 	return true;
 #endif
 }
+
+NODISCARD [[maybe_unused]] static bool shell_populate_completion_state(ShellState* state) {
+
+	Trie* trie = initialize_trie();
+
+	if(trie == NULL) {
+		return false;
+	}
+
+	// add builtins
+	for(size_t i = 0; i < BUILTIN_FUNCTION_COUNT; ++i) {
+
+		BuiltinCommand builtin_command = g_builtin_functions[i];
+		bool ok = add_to_trie(trie, tstr_from_static_tstr(builtin_command.name));
+		if(!ok) {
+			return false;
+		}
+	}
+
+	state->completion_state.completion_trie = trie;
+	return true;
+}
+
+// TODO: free completion state
+
+#if SHELL_USE_EDIT_LIBRARY == 0
+NODISCARD static bool shell_setup_completion(ShellState* state) {
+
+	// TODO: implement
+	UNUSED(state);
+	return true;
+}
+#elif SHELL_USE_EDIT_LIBRARY == 1
+
+typedef struct {
+	char** raw;
+} RLCompletionArray;
+
+typedef struct {
+	bool is_ok;
+	union {
+		RLCompletionArray array;
+		tstr error;
+	} data;
+} RLCompletionResult;
+
+NODISCARD static RLCompletionResult
+completion_result_array_to_rl_completion_array(TrieResultEntryArray* array) {
+
+	const size_t array_length = TVEC_LENGTH(TrieResultEntry, *array);
+
+	char** rl_array = malloc((array_length + 1) * sizeof(char*));
+
+	if(rl_array == NULL) {
+		return (RLCompletionResult){ .is_ok = false,
+			                         .data = { .error = TSTR_LIT("OOM in internal allocation") } };
+	}
+
+	rl_array[array_length] = NULL;
+
+	for(size_t i = 0; i < array_length; ++i) {
+
+		const TrieResultEntry* const arg = TVEC_GET_AT(TrieResultEntry, array, i);
+		ASSERT(arg != NULL);
+
+		tstr name = tstr_from_view(arg->name);
+
+		rl_array[i] = strdup(tstr_cstr(&name));
+		tstr_free(&name);
+	}
+
+	TVEC_FREE(TrieResultEntry, array);
+
+	return (RLCompletionResult){ .is_ok = true, .data = { .array = { .raw = rl_array } } };
+}
+
+NODISCARD static RLCompletionResult
+shell_completion_function_rl_impl(ShellState* state, const char* text, int start, int end) {
+
+	int len = end - start;
+	if(len < 0) {
+		return (RLCompletionResult){ .is_ok = false,
+			                         .data = { .error = TSTR_LIT("invalid arguments") } };
+	}
+
+	tstr_view string = (tstr_view){ .data = text, .len = (size_t)len };
+
+	// if start == 0, we have the first string, we only complete on that
+	if(start == 0) {
+
+		const Trie* trie = state->completion_state.completion_trie;
+
+		if(trie == NULL) {
+			return (RLCompletionResult){ .is_ok = false,
+				                         .data = { .error = TSTR_LIT("Trie empty") } };
+		}
+
+		TrieSearchResult res = search_in_trie(trie, string);
+
+		if(!res.is_ok) {
+			return (RLCompletionResult){ .is_ok = false, .data = { .error = res.data.error } };
+		}
+
+		TrieResultEntryArray array = res.data.ok;
+
+		return completion_result_array_to_rl_completion_array(&array);
+	}
+
+	return (RLCompletionResult){ .is_ok = false,
+		                         .data = { .error = TSTR_LIT("Not yet implemented") } };
+}
+
+static ShellState* g_rl_internal_completion_state = NULL;
+
+NODISCARD static char** shell_completion_function_rl(const char* text, int start, int end) {
+
+	rl_attempted_completion_over = 1;
+
+	RLCompletionResult array =
+	    shell_completion_function_rl_impl(g_rl_internal_completion_state, text, start, end);
+
+	if(!array.is_ok) {
+		fprintf(stderr, "[DEBUG]" TSTR_FMT "\n", TSTR_FMT_ARGS(array.data.error));
+		tstr_free(&(array.data.error));
+		return NULL;
+	}
+
+	return array.data.array.raw;
+}
+
+NODISCARD static bool shell_setup_completion(ShellState* state) {
+
+	g_rl_internal_completion_state = state;
+
+	rl_attempted_completion_function = shell_completion_function_rl;
+
+	return shell_populate_completion_state(state);
+}
+#else
+NODISCARD static bool shell_setup_completion(ShellState* state) {
+
+	// TODO: implement
+	UNUSED(state);
+	return true;
+}
+#endif
 
 ExitCode shell_execute_repl(const size_t argc, char* const* const argv) {
 	if(argc == 0) {
@@ -1352,7 +1505,16 @@ ExitCode shell_execute_repl(const size_t argc, char* const* const argv) {
 
 	bool ok = shell_setup_prompt(&state);
 	if(!ok) {
-		RETURNS_VOID shell_print_error("[INTERNAL]: el prompt set error\n");
+		RETURNS_VOID shell_print_error("[INTERNAL]: prompt setup error\n");
+
+		tstr_free(&setup_res.data.error);
+
+		return ExitCodeImplementationError;
+	}
+
+	bool ok2 = shell_setup_completion(&state);
+	if(!ok2) {
+		RETURNS_VOID shell_print_error("[INTERNAL]: completion setup error\n");
 
 		tstr_free(&setup_res.data.error);
 
