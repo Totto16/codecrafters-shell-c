@@ -626,9 +626,22 @@ static void free_trie_hash_map(TrieNodeEntryHashMap* map) {
 	TMAP_FREE(TrieNodeEntryHashMap, map);
 }
 
+static void free_trie_array(TrieEntryArray* array) {
+
+	for(size_t i = 0; i < TVEC_LENGTH(TrieEntry, *array); ++i) {
+
+		TrieEntry* const arg = TVEC_GET_AT_MUT(TrieEntry, array, i);
+		ASSERT(arg != NULL);
+
+		tstr_free(&(arg->name));
+	}
+
+	TVEC_FREE(TrieEntry, array);
+}
+
 void free_trie(Trie* trie) {
 
-	TVEC_FREE(TrieEntry, &(trie->array));
+	free_trie_array(&(trie->array));
 
 	free_trie_hash_map(&(trie->root.map));
 

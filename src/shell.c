@@ -1367,7 +1367,8 @@ NODISCARD static bool shell_add_executables_in_dir_to_completion(Trie* trie, tst
 				// and error occurred
 				return false;
 			}
-			return true;
+
+			break;
 		}
 
 		tstr_view name = tstr_view_from(ent->d_name);
