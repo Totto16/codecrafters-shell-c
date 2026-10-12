@@ -1409,15 +1409,24 @@ NODISCARD [[maybe_unused]] static Trie* shell_get_completion_trie_for_dir(const 
 
 		tstr value = tstr_from_view(dir_prefix);
 
-		TStrResult res = tstr_cat_len(&value, name.data, name.len);
+		{
+			const TStrResult res = tstr_cat_len(&value, name.data, name.len);
 
-		if(res != TStrResultOk) {
-			free_trie(trie);
-			IGNORE_RESULT closedir(dir);
-			return NULL;
+			if(res != TStrResultOk) {
+				free_trie(trie);
+				IGNORE_RESULT closedir(dir);
+				return NULL;
+			}
+
+			if(ent->d_type == DT_DIR) {
+				const TStrResult res2 = tstr_cat_len(&value, "/", 1);
+				if(res2 != TStrResultOk) {
+					free_trie(trie);
+					IGNORE_RESULT closedir(dir);
+					return NULL;
+				}
+			}
 		}
-		// TODO: maybe also add an entry "<dir>/" with the dir flag and the normal "<dir>" has no
-		// dir flag set?
 
 		bool ok = add_to_trie(trie, value, file_type);
 		if(!ok) {
