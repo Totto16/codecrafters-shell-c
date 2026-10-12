@@ -30,3 +30,5 @@ typedef struct {
 NODISCARD TrieSearchResult search_in_trie(const Trie* trie, tstr_view prefix);
 
 void free_trie(Trie* trie);
+
+NODISCARD tstr find_common_prefix(const TrieResultEntryArray* array);

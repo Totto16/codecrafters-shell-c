@@ -1390,12 +1390,13 @@ typedef struct {
 } RLCompletionResult;
 
 NODISCARD static RLCompletionResult
-completion_result_array_to_rl_completion_array(TrieResultEntryArray* array, tstr_view prefix) {
+completion_result_array_to_rl_completion_array(TrieResultEntryArray* array,
+                                               tstr_view current_prefix) {
 
 	const size_t array_length = TVEC_LENGTH(TrieResultEntry, *array);
 
 	// NOTE: this array is of size (length + 2) of char*
-	// the first entry is the common prefix or NULL
+	// the first entry is the common prefix (nonull!)
 	// the end is marked by NULL
 	char** raw_array = malloc((array_length + 2) * sizeof(char*));
 
@@ -1405,9 +1406,14 @@ completion_result_array_to_rl_completion_array(TrieResultEntryArray* array, tstr
 	}
 
 	{
-		tstr prefix_str = tstr_from_view(prefix);
-		raw_array[0] = strdup(tstr_cstr(&prefix_str));
-		tstr_free(&prefix_str);
+
+		tstr common_prefix = find_common_prefix(array);
+		if(tstr_is_null(&common_prefix)) {
+			common_prefix = tstr_from_view(current_prefix);
+		}
+
+		raw_array[0] = strdup(tstr_cstr(&common_prefix));
+		tstr_free(&common_prefix);
 	}
 	raw_array[array_length + 1] = NULL;
 

@@ -593,6 +593,45 @@ void free_trie(Trie* trie) {
 	free(trie);
 }
 
+NODISCARD static size_t common_prefix_between_impl(tstr_view arg0, tstr_view arg1) {
+
+	const size_t max_len = arg0.len > arg1.len ? arg1.len : arg0.len;
+
+	for(size_t i = 0; i < max_len; ++i) {
+		if(arg0.data[i] != arg1.data[i]) {
+			return i;
+		}
+	}
+
+	return max_len;
+}
+
+NODISCARD tstr find_common_prefix(const TrieResultEntryArray* array) {
+	const size_t array_length = TVEC_LENGTH(TrieResultEntry, *array);
+
+	tstr_view common_prefix = (tstr_view){ .data = NULL, .len = 0 };
+
+	if(array_length == 0) {
+		return tstr_null();
+		;
+	} else {
+		const TrieResultEntry* const arg0 = TVEC_GET_AT(TrieResultEntry, array, 0);
+		ASSERT(arg0 != NULL);
+
+		common_prefix = arg0->name;
+	}
+
+	for(size_t i = 0; i < array_length; ++i) {
+
+		const TrieResultEntry* const arg = TVEC_GET_AT(TrieResultEntry, array, i);
+		ASSERT(arg != NULL);
+
+		common_prefix.len = common_prefix_between_impl(common_prefix, arg->name);
+	}
+
+	return tstr_from_view(common_prefix);
+}
+
 TMAP_IMPLEMENT_MAP_TYPE(TrieIdentifierType, TrieIdentifier, TrieNodeEntry, TrieNodeEntryHashMap)
 
 TVEC_IMPLEMENT_VEC_TYPE(TrieResultEntry)
