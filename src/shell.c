@@ -1398,6 +1398,10 @@ NODISCARD [[maybe_unused]] static Trie* shell_get_completion_trie_for_dir(const 
 
 		tstr_view name = tstr_view_from(ent->d_name);
 
+		if(tstr_view_eq(name, ".") || tstr_view_eq(name, "..")) {
+			continue;
+		}
+
 		const TrieFlagFile file_type =
 		    TrieFlagTypeFile | (ent->d_type == DT_UNKNOWN ? TrieFlagFileFlagValUnknown
 		                        : ent->d_type == DT_DIR   ? TrieFlagFileFlagValDir
@@ -1451,6 +1455,10 @@ NODISCARD static bool shell_add_executables_in_dir_to_completion(Trie* trie, tst
 		}
 
 		tstr_view name = tstr_view_from(ent->d_name);
+
+		if(tstr_view_eq(name, ".") || tstr_view_eq(name, "..")) {
+			continue;
+		}
 
 		tstr executable = path_dir_get_executable(directory, name);
 		if(tstr_is_null(&executable)) {
@@ -1753,9 +1761,6 @@ NODISCARD static FileNameParentResolveResult filename_resolve_parent(ShellState*
 }
 
 NODISCARD static RLCompletionResult rl_complete_filename_impl(ShellState* state, tstr_view prefix) {
-
-	// TODO: classify the type of path, absolute, relative or something else, resolve the abs
-	// prefix, and then use opendir() to list files and paths
 
 	FileNameParentResolveResult parent_res = filename_resolve_parent(state, prefix);
 
