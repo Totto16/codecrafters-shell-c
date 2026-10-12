@@ -1745,14 +1745,14 @@ shell_completion_function_rl_impl(ShellState* state, const char* text, int start
 	}
 
 	tstr_view before = (tstr_view){ .data = rl_line_buffer, .len = (size_t)(start - 1) };
+	UNUSED(before);
 
-	// Note: this should be better, atm we hardcoded file path support for "cat" only
-	if(tstr_view_eq(before, "cat")) {
-		return rl_complete_filename_impl(state, string);
-	}
+	// TODO: better detect when needed
+	// NOTE: do this for every command for now
+	return rl_complete_filename_impl(state, string);
 
-	return (RLCompletionResult){ .type = RLCompletionResultTypeError,
-		                         .data = { .error = TSTR_LIT("Not yet implemented") } };
+	/* return (RLCompletionResult){ .type = RLCompletionResultTypeError,
+	                             .data = { .error = TSTR_LIT("Not yet implemented") } }; */
 }
 
 static ShellState* g_rl_internal_completion_state = NULL;
