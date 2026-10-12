@@ -7,6 +7,26 @@
 #include "./shell.h"
 #include "./utils.h"
 
+typedef struct {
+	tstr_view path;
+} PathDirectory;
+
+TVEC_DEFINE_VEC_TYPE(PathDirectory)
+
+typedef TVEC_TYPENAME(PathDirectory) PathDirectories;
+
+typedef struct {
+	bool is_ok;
+	union {
+		PathDirectories directories;
+		tstr error;
+	} data;
+} PathDirectoriesResult;
+
+void free_path_directories(PathDirectories* directories);
+
+NODISCARD PathDirectoriesResult get_path_directories(tstr_view path_env);
+
 NODISCARD tstr get_executable_path(tstr_view name);
 
 typedef uint8_t ShellSignal;

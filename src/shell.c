@@ -1,10 +1,13 @@
 #include "./shell.h"
 
+#include <dirent.h>
+#include <errno.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -1346,6 +1349,81 @@ NODISCARD static bool shell_setup_prompt(ShellState* state) {
 #endif
 }
 
+NODISCARD static bool shell_add_executables_in_dir_to_completion(Trie* trie, tstr_view directory) {
+
+	tstr dir_str = tstr_from_view(directory);
+
+	DIR* dir = opendir(tstr_cstr(&dir_str));
+	tstr_free(&dir_str);
+
+	if(dir == NULL) {
+		return true;
+	}
+	while(true) {
+		errno = 0;
+		struct dirent* ent = readdir(dir);
+		if(ent == NULL) {
+			if(errno != 0) {
+				// and error occurred
+				return false;
+			}
+			return true;
+		}
+
+		tstr_view name = tstr_view_from(ent->d_name);
+
+		tstr executable = path_dir_get_executable(directory, name);
+		if(tstr_is_null(&executable)) {
+			continue;
+		}
+
+		tstr_free(&executable);
+
+		bool ok = add_to_trie(trie, tstr_from_view(name));
+		if(!ok) {
+			return false;
+		}
+	}
+
+	IGNORE_RESULT closedir(dir);
+
+	return true;
+}
+
+NODISCARD static bool shell_add_executables_in_path_to_completion(Trie* trie) {
+	const char* const path_env = getenv("PATH");
+
+	if(path_env == NULL) {
+		return true;
+	}
+
+	PathDirectoriesResult path_res = get_path_directories(tstr_view_from(path_env));
+
+	if(!path_res.is_ok) {
+		// Note: the error is ignored here
+		tstr_free(&path_res.data.error);
+		return true;
+	}
+
+	PathDirectories directories = path_res.data.directories;
+
+	for(size_t i = 0; i < TVEC_LENGTH(PathDirectory, directories); ++i) {
+
+		const PathDirectory* const arg = TVEC_GET_AT(PathDirectory, &directories, i);
+		ASSERT(arg != NULL);
+
+		bool ok = shell_add_executables_in_dir_to_completion(trie, arg->path);
+
+		if(!ok) {
+			free_path_directories(&directories);
+			return false;
+		}
+	}
+
+	free_path_directories(&directories);
+	return true;
+}
+
 NODISCARD [[maybe_unused]] static bool shell_populate_completion_state(ShellState* state) {
 
 	Trie* trie = initialize_trie();
@@ -1362,6 +1440,12 @@ NODISCARD [[maybe_unused]] static bool shell_populate_completion_state(ShellStat
 		if(!ok) {
 			return false;
 		}
+	}
+
+	// add paths
+	bool ok = shell_add_executables_in_path_to_completion(trie);
+	if(!ok) {
+		return false;
 	}
 
 	state->completion_state.completion_trie = trie;

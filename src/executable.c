@@ -8,25 +8,11 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-typedef struct {
-	tstr_view path;
-} PathDirectory;
+TVEC_IMPLEMENT_VEC_TYPE(PathDirectory)
 
-TVEC_DEFINE_AND_IMPLEMENT_VEC_TYPE(PathDirectory)
-
-typedef TVEC_TYPENAME(PathDirectory) PathDirectories;
-
-static void free_path_directories(PathDirectories* directories) {
+void free_path_directories(PathDirectories* directories) {
 	TVEC_FREE(PathDirectory, directories);
 }
-
-typedef struct {
-	bool is_ok;
-	union {
-		PathDirectories directories;
-		tstr error;
-	} data;
-} PathDirectoriesResult;
 
 #ifdef _WIN32
     // on windows it is ';'
@@ -57,7 +43,7 @@ typedef struct {
 		} \
 	} while(false)
 
-static PathDirectoriesResult get_path_directories(tstr_view path_env) {
+PathDirectoriesResult get_path_directories(tstr_view path_env) {
 
 	PathDirectories directories = TVEC_EMPTY(PathDirectory);
 
@@ -111,7 +97,7 @@ tstr get_executable_path(tstr_view name) {
 	PathDirectoriesResult path_res = get_path_directories(tstr_view_from(path_env));
 
 	if(!path_res.is_ok) {
-		// NOTe. the error is ignored here
+		// Note: the error is ignored here
 		tstr_free(&path_res.data.error);
 		return tstr_null();
 	}
