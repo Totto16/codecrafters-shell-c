@@ -207,7 +207,7 @@ static tstr shell_virtual_fn_sync_process_history_file(shell_virtual_context ctx
 			return write_history_to_file(&(state->global.history), &(data->file));
 		}
 		default: {
-			return TSTR_LIT("invlaid process type");
+			return TSTR_LIT("invalid process type");
 		}
 	}
 }
@@ -339,7 +339,7 @@ static tstr shell_virtual_fn_subshell_process_history_file(shell_virtual_context
 			return write_history_to_file(&(state->instance.history), &(data->file));
 		}
 		default: {
-			return TSTR_LIT("invlaid process type");
+			return TSTR_LIT("invalid process type");
 		}
 	}
 }
