@@ -1381,8 +1381,14 @@ typedef struct {
 	char** raw;
 } RLCompletionArray;
 
+typedef enum : uint8_t {
+	RLCompletionResultTypeOk = 0,
+	RLCompletionResultTypeEmpty,
+	RLCompletionResultTypeError,
+} RLCompletionResultType;
+
 typedef struct {
-	bool is_ok;
+	RLCompletionResultType type;
 	union {
 		RLCompletionArray array;
 		tstr error;
@@ -1395,13 +1401,19 @@ completion_result_array_to_rl_completion_array(TrieResultEntryArray* array,
 
 	const size_t array_length = TVEC_LENGTH(TrieResultEntry, *array);
 
+	if(array_length == 0) {
+		TVEC_FREE(TrieResultEntry, array);
+
+		return (RLCompletionResult){ .type = RLCompletionResultTypeEmpty, .data = {} };
+	}
+
 	// NOTE: this array is of size (length + 2) of char*
 	// the first entry is the common prefix (nonull!)
 	// the end is marked by NULL
 	char** raw_array = malloc((array_length + 2) * sizeof(char*));
 
 	if(raw_array == NULL) {
-		return (RLCompletionResult){ .is_ok = false,
+		return (RLCompletionResult){ .type = RLCompletionResultTypeError,
 			                         .data = { .error = TSTR_LIT("OOM in internal allocation") } };
 	}
 
@@ -1430,7 +1442,8 @@ completion_result_array_to_rl_completion_array(TrieResultEntryArray* array,
 
 	TVEC_FREE(TrieResultEntry, array);
 
-	return (RLCompletionResult){ .is_ok = true, .data = { .array = { .raw = raw_array } } };
+	return (RLCompletionResult){ .type = RLCompletionResultTypeOk,
+		                         .data = { .array = { .raw = raw_array } } };
 }
 
 NODISCARD static RLCompletionResult
@@ -1438,7 +1451,7 @@ shell_completion_function_rl_impl(ShellState* state, const char* text, int start
 
 	int len = end - start;
 	if(len < 0) {
-		return (RLCompletionResult){ .is_ok = false,
+		return (RLCompletionResult){ .type = RLCompletionResultTypeError,
 			                         .data = { .error = TSTR_LIT("invalid arguments") } };
 	}
 
@@ -1450,14 +1463,15 @@ shell_completion_function_rl_impl(ShellState* state, const char* text, int start
 		const Trie* trie = state->completion_state.completion_trie;
 
 		if(trie == NULL) {
-			return (RLCompletionResult){ .is_ok = false,
+			return (RLCompletionResult){ .type = RLCompletionResultTypeError,
 				                         .data = { .error = TSTR_LIT("Trie empty") } };
 		}
 
 		TrieSearchResult res = search_in_trie(trie, string);
 
 		if(!res.is_ok) {
-			return (RLCompletionResult){ .is_ok = false, .data = { .error = res.data.error } };
+			return (RLCompletionResult){ .type = RLCompletionResultTypeError,
+				                         .data = { .error = res.data.error } };
 		}
 
 		TrieResultEntryArray array = res.data.ok;
@@ -1465,7 +1479,7 @@ shell_completion_function_rl_impl(ShellState* state, const char* text, int start
 		return completion_result_array_to_rl_completion_array(&array, string);
 	}
 
-	return (RLCompletionResult){ .is_ok = false,
+	return (RLCompletionResult){ .type = RLCompletionResultTypeError,
 		                         .data = { .error = TSTR_LIT("Not yet implemented") } };
 }
 
@@ -1478,13 +1492,26 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 	RLCompletionResult array =
 	    shell_completion_function_rl_impl(g_rl_internal_completion_state, text, start, end);
 
-	if(!array.is_ok) {
+	if(array.type == RLCompletionResultTypeError) {
 		// TODO: print the error somehow
 		tstr_free(&(array.data.error));
+
+		rl_completion_suppress_append = 1;
+
+		return NULL;
+	} else if(array.type == RLCompletionResultTypeEmpty) {
+
+		rl_completion_suppress_append = 1;
+
+		return NULL;
+	} else if(array.type == RLCompletionResultTypeOk) {
+
+		return array.data.array.raw;
+	} else {
+		rl_completion_suppress_append = 1;
+
 		return NULL;
 	}
-
-	return array.data.array.raw;
 }
 
 NODISCARD static bool shell_setup_completion(ShellState* state) {
