@@ -273,6 +273,38 @@ static bool shell_set_completion_impl(ShellCompletionState* state, tstr name,
 	return true;
 }
 
+static bool shell_remove_completion_impl(ShellCompletionState* state, const tstr* name) {
+
+	// TODO: tmap doesn't allow removal with free, so we just get the entry, if it exists we free it
+	// and then remove it!
+
+	const TMAP_TYPENAME_ENTRY(ShellCompletionHashMap)* map_entry =
+	    TMAP_GET_ENTRY(ShellCompletionHashMap, &(state->storage.map), *name);
+
+	if(map_entry == NULL) {
+		// we can't remove anything, that isn't there
+		return true;
+	}
+
+	// we can't free the key yet, as it is needed for checking the hash in the remove action, this
+	// is the reason, why we need a better remove function in the TMAP API
+
+	tstr key = map_entry->key;
+
+	// this is another hack to free the tstr, as the get_entry function returns a const *, and there
+	// is no APi for a mut *, so we use a &to local storage for the free function xD, this shows how
+	// brokent his approach is, but it works TM
+	ShellCompletion completion = map_entry->value;
+
+	tstr_free(&(completion.script));
+
+	TMAP_REM(ShellCompletionHashMap, &(state->storage.map), *name);
+
+	tstr_free(&key);
+
+	return true;
+}
+
 static const ShellCompletion* shell_virtual_fn_sync_get_completion(shell_virtual_context ctx,
                                                                    const tstr* name) {
 	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
@@ -285,6 +317,12 @@ static bool shell_virtual_fn_sync_set_completion(shell_virtual_context ctx, tstr
 	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
 
 	return shell_set_completion_impl(&(state->completion_state), name, completion);
+}
+
+static bool shell_virtual_fn_sync_remove_completion(shell_virtual_context ctx, const tstr* name) {
+	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
+
+	return shell_remove_completion_impl(&(state->completion_state), name);
 }
 
 static tstr_view shell_virtual_fn_sync_get_current_working_directory(shell_virtual_context ctx) {
@@ -331,6 +369,7 @@ static const ShellVirtualFunctions g_shell_functions_synchronous = {
 	.process_history_file = shell_virtual_fn_sync_process_history_file,
 	.get_completion = shell_virtual_fn_sync_get_completion,
 	.set_completion = shell_virtual_fn_sync_set_completion,
+	.remove_completion = shell_virtual_fn_sync_remove_completion,
 };
 
 #define SHELL_HANDLE_SYNCHRONOUS(ctx) \

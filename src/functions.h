@@ -62,6 +62,8 @@ typedef const ShellCompletion* (*shell_fn_get_completion)(shell_virtual_context 
 typedef bool (*shell_fn_set_completion)(shell_virtual_context ctx, tstr name,
                                         ShellCompletion completion);
 
+typedef bool (*shell_fn_remove_completion)(shell_virtual_context ctx, const tstr* name);
+
 typedef struct {
 	shell_fn_get_current_working_directory get_current_working_directory;
 	shell_fn_set_current_working_directory set_current_working_directory;
@@ -71,6 +73,7 @@ typedef struct {
 	shell_fn_process_history_file process_history_file;
 	shell_fn_get_completion get_completion;
 	shell_fn_set_completion set_completion;
+	shell_fn_remove_completion remove_completion;
 } ShellVirtualFunctions;
 
 typedef struct {

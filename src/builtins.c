@@ -866,11 +866,16 @@ static const BuiltinCommand builtin_function_history = {
 typedef enum : uint8_t {
 	CompleteTypePrint = 0,
 	CompleteTypeAdd,
+	CompleteTypeRemove,
 } CompleteType;
 
 typedef struct {
 	tstr name;
 } CompletePrint;
+
+typedef struct {
+	tstr name;
+} CompleteRemove;
 
 typedef struct {
 	tstr name;
@@ -882,6 +887,7 @@ typedef struct {
 	union {
 		CompletePrint print;
 		CompleteAdd add;
+		CompleteRemove remove;
 	} data;
 } CompleteData;
 
@@ -919,6 +925,12 @@ static ShellParseArgumentsResult complete_parse_arguments(const ShellArguments* 
 
 			CompleteData complete_data = { .type = CompleteTypePrint,
 				                           .data = { .print = { .name = name } } };
+			RETURN_ARGUMENT(CompleteData, complete_data);
+		} else if(tstr_eq_cstr(&(arg1->parsed), "-r")) {
+			tstr name = tstr_dup(&(arg2->parsed));
+
+			CompleteData complete_data = { .type = CompleteTypeRemove,
+				                           .data = { .remove = { .name = name } } };
 			RETURN_ARGUMENT(CompleteData, complete_data);
 		} else {
 
@@ -968,6 +980,10 @@ static void complete_free_arguments(shell_dynamic_args args) {
 			tstr_free(&(complete_data->data.print.name));
 			break;
 		}
+		case CompleteTypeRemove: {
+			tstr_free(&(complete_data->data.remove.name));
+			break;
+		}
 		case CompleteTypeAdd: {
 			tstr_free(&(complete_data->data.add.name));
 			tstr_free(&(complete_data->data.add.script));
@@ -1013,6 +1029,17 @@ static ExitCode complete_invoke(shell_dynamic_args args, const ShellHandle shell
 
 				return ExitCodeSuccess;
 			}
+		}
+		case CompleteTypeRemove: {
+			CompleteRemove remove = complete_data->data.remove;
+
+			bool ok = shell.function.remove_completion(shell.context, &remove.name);
+
+			if(!ok) {
+				RETURN_IMPL_ERROR("complete", "Can't remove the completion for the command");
+			}
+
+			return ExitCodeSuccess;
 		}
 		case CompleteTypeAdd: {
 			CompleteAdd* add = &(complete_data->data.add);
