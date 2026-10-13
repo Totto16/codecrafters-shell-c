@@ -2052,38 +2052,20 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 				                             .error = TSTR_LIT("OOM error in internal parsing") } };
 		}
 
-		// NOTE: the 3rd argument is the previous word, if there is one, this means, we need to
-		// check the total string, as our parsed result doesn't tell us, if the line ended in " "
-		// (we are not completing the last parsed argument) or if the last argument in the arguments
-		// is currently being completed, when just splitting by " " this would be easier, but we
-		// have a more complicated parser
+		// NOTE: the 3rd argument is the previous word, if there is one
 		ShellArgument argv3 = { .parsed = tstr_from(""), .original = TSTR_TSV("") };
 
-		if(all_text.len > 0) {
-
+		{
 			const size_t args_length = TVEC_LENGTH(ShellArgument, completion.args);
 
-			if(all_text.data[all_text.len - 1] == ' ') {
-				// we use the last argument from the args, or arg0, if there is none
-				if(args_length > 0) {
-					const ShellArgument* const arg_last =
-					    TVEC_GET_AT(ShellArgument, &(completion.args), (args_length - 1));
-					ASSERT(arg_last != NULL);
-					argv3 = shell_dup_shell_argument(arg_last);
-				} else if(!tstr_is_null(&(completion.arg0.parsed))) {
-					argv3 = shell_dup_shell_argument(&completion.arg0);
-				}
-
-			} else {
-				// we use the previous parsed argument, or arg0 if there is none
-				if(args_length > 0) {
-					const ShellArgument* const arg_last =
-					    TVEC_GET_AT(ShellArgument, &(completion.args), (args_length - 1));
-					ASSERT(arg_last != NULL);
-					argv3 = shell_dup_shell_argument(arg_last);
-				} /* else if(!tstr_is_null(&(completion.arg0.parsed))) {
-					argv3 = shell_dup_shell_argument(&completion.arg0);
-				} */
+			// we use the last argument from the args, or arg0, if there is none
+			if(args_length > 0) {
+				const ShellArgument* const arg_last =
+				    TVEC_GET_AT(ShellArgument, &(completion.args), (args_length - 1));
+				ASSERT(arg_last != NULL);
+				argv3 = shell_dup_shell_argument(arg_last);
+			} else if(!tstr_is_null(&(completion.arg0.parsed))) {
+				argv3 = shell_dup_shell_argument(&completion.arg0);
 			}
 		}
 
