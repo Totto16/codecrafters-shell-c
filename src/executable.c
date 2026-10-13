@@ -467,7 +467,7 @@ invoke_executable_synchronous_capture(const tstr* path, const tstr* invoke_name,
 
 	ShellRedirectSettings settings = { .stdout = { .append = false, .location = tstr_null() },
 		                               .stderr = { .append = true,
-		                                           .location = tstr_null()  } };
+		                                           .location = TSTR_LIT("/dev/null") } };
 
 	ShellExecuteAsyncResult result =
 	    invoke_executable_impl(path, invoke_name, arguments, &settings, &pipe_state, envs);
