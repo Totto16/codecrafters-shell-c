@@ -2027,7 +2027,10 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
                             tstr_view all_text, size_t end) {
 
 	const tstr* path = &(completion.completion->script);
-	const tstr* invoke_name = &(completion.completion->script);
+	const tstr* invoke_name = tstr_is_null(&(completion.arg0.parsed))
+	                              ? &(completion.completion->script)
+	                              : &(completion.arg0.parsed);
+
 	ShellArguments arguments = TVEC_EMPTY(ShellArgument);
 
 	{
