@@ -455,6 +455,7 @@ NODISCARD ShellExecuteSyncCaptureResult invoke_executable_synchronous_capture(
 	    invoke_executable_impl(path, invoke_name, arguments, &settings, &pipe_state);
 
 	tstr_free(&settings.stderr.location);
+	TVEC_FREE(ShellPipeInfo, &pipe_info_array);
 
 	// close unused ends in this process
 	IGNORE_RESULT close(stdin_info.fds[PIPE_READ_END]);
