@@ -212,7 +212,8 @@ NORETURN static void invoke_executable_child_impl(const tstr* path, const tstr* 
 		// close the unnecessary WRITE_END
 		int cres = close(stdin_info->fds[PIPE_WRITE_END]);
 		if(cres != 0) {
-			exe_report_error(ExitCodeImplementationError, "Couldn't close the unused pipe end\n");
+			exe_report_error(ExitCodeImplementationError,
+			                 "Couldn't close the unused stdin pipe write end\n");
 		}
 	}
 
@@ -234,11 +235,13 @@ NORETURN static void invoke_executable_child_impl(const tstr* path, const tstr* 
 		}
 
 		// NOTE: do this also when not using the other end
+
 		// close the unnecessary READ_END
 
 		int cres = close(stdout_info->fds[PIPE_READ_END]);
 		if(cres != 0) {
-			exe_report_error(ExitCodeImplementationError, "Couldn't close the unused pipe end\n");
+			exe_report_error(ExitCodeImplementationError,
+			                 "Couldn't close the unused stdout pipe read end\n");
 		}
 	}
 
