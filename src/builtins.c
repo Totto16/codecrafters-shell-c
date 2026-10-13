@@ -1100,10 +1100,78 @@ static const BuiltinCommand builtin_function_complete = {
 	.help = complete_help,
 };
 
+typedef struct {
+	Monostate _unused;
+} JobsData;
+
+TRTTI_DECLARE_TYPE_AS_SUPPORTED(JobsData)
+
+TRTTI_IMPLEMENTATION_FOR_TYPE(JobsData)
+
+static ShellParseArgumentsResult jobs_parse_arguments(const ShellArguments* args) {
+
+	if(args->length == 0) {
+
+		JobsData jobs_data = { ._unused = MONOSTATE };
+		RETURN_ARGUMENT(JobsData, jobs_data);
+	}
+
+	return (ShellParseArgumentsResult){ .is_ok = false,
+		                                .data = { .error = TSTR_LIT("jobs: too many arguments") } };
+}
+
+static void jobs_free_arguments(shell_dynamic_args args) {
+
+	TRTTI_DESTROY(JobsData, args);
+}
+
+static ExitCode jobs_invoke(shell_dynamic_args args, const ShellHandle shell, const ShellIO io) {
+
+	UNUSED(args);
+	UNUSED(io);
+	UNUSED(shell);
+
+	return ExitCodeSuccess;
+}
+
+static tstr_static jobs_help(void) {
+	return TSTR_STATIC_LIT(
+	    "jobs: jobs [-lnprs] [jobspec ...] or jobs -x command [args]\n"
+	    "Display status of jobs.\n"
+	    "\n"
+	    "Lists the active jobs.  JOBSPEC restricts output to that job.\n"
+	    "Without options, the status of all active jobs is displayed.\n"
+	    "\n"
+	    "Options:\n"
+	    "  -l        lists process IDs in addition to the normal information\n"
+	    "  -n        lists only processes that have changed status since the last\n"
+	    "            notification\n"
+	    "  -p        lists process IDs only\n"
+	    "  -r        restrict output to running jobs\n"
+	    "  -s        restrict output to stopped jobs\n"
+	    "\n"
+	    "If -x is supplied, COMMAND is run after all job specifications that\n"
+	    "appear in ARGS have been replaced with the process ID of that job's\n"
+	    "process group leader.\n"
+	    "\n"
+	    "Exit Status:\n"
+	    "Returns success unless an invalid option is given or an error occurs.\n"
+	    "If -x is used, returns the exit status of COMMAND.\n"
+
+	);
+}
+
+static const BuiltinCommand builtin_function_jobs = {
+	.name = TSTR_STATIC_LIT_CONST("jobs"),
+	.validator = { .parse = jobs_parse_arguments, .free = jobs_free_arguments },
+	.invoke = jobs_invoke,
+	.help = jobs_help,
+};
+
 const BuiltinCommand g_builtin_functions[] = {
 	builtin_function_exit,     builtin_function_echo, builtin_function_type,
 	builtin_function_pwd,      builtin_function_cd,   builtin_function_history,
-	builtin_function_complete,
+	builtin_function_complete, builtin_function_jobs,
 	// TODO(Totto): add help builtin
 };
 
