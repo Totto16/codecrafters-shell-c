@@ -2052,12 +2052,13 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 				                             .error = TSTR_LIT("OOM error in internal parsing") } };
 		}
 
+		// NOTE: the 3rd argument is the previous word, if there is one
 		ShellArgument argv3 = { .parsed = tstr_from(""), .original = TSTR_TSV("") };
 		if(TVEC_LENGTH(ShellArgument, completion.args) > 0) {
 			const ShellArgument* const arg1 = TVEC_GET_AT(ShellArgument, &(completion.args), 0);
 			ASSERT(arg1 != NULL);
 			argv3 = shell_dup_shell_argument(arg1);
-		} else if(prefix.len != 0 && !tstr_is_null(&(completion.arg0.parsed))) {
+		} else if(prefix.len == 0 && !tstr_is_null(&(completion.arg0.parsed))) {
 			argv3 = shell_dup_shell_argument(&completion.arg0);
 		}
 
