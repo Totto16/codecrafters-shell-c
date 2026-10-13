@@ -165,7 +165,7 @@ NORETURN static void invoke_executable_child_impl(const tstr* path, const tstr* 
 	bool stdout_redirected = false;
 
 	if(shell_redirect_is_set(&(settings->stdout))) {
-		int fd = shell_redirect_open_file(&settings->stdout);
+		int fd = shell_redirect_open(&settings->stdout);
 
 		if(fd < 0) {
 			exe_report_error(ExitCodeImplementationError, "Couldn't open stdout redirect file\n");
@@ -177,12 +177,12 @@ NORETURN static void invoke_executable_child_impl(const tstr* path, const tstr* 
 			exe_report_error(ExitCodeImplementationError, "Couldn't replace stdout\n");
 		}
 
-		shell_redirect_close_file(fd);
+		shell_redirect_close(fd);
 		stdout_redirected = true;
 	}
 
 	if(shell_redirect_is_set(&(settings->stderr))) {
-		int fd = shell_redirect_open_file(&settings->stderr);
+		int fd = shell_redirect_open(&settings->stderr);
 
 		if(fd < 0) {
 			exe_report_error(ExitCodeImplementationError, "Couldn't open stderr redirect file\n");
@@ -194,7 +194,7 @@ NORETURN static void invoke_executable_child_impl(const tstr* path, const tstr* 
 			exe_report_error(ExitCodeImplementationError, "Couldn't replace stderr\n");
 		}
 
-		shell_redirect_close_file(fd);
+		shell_redirect_close(fd);
 	}
 
 	// handle pipes
@@ -420,6 +420,7 @@ invoke_executable_synchronous_capture(const tstr* path, const tstr* invoke_name,
 
 	ShellPipeInfo stdin_info = { .fds = { 0, 0 } };
 	ShellPipeInfo stdout_info = { .fds = { 0, 0 } };
+	ShellPipeInfo stderr_info = { .fds = { 0, 0 } };
 
 	{
 
@@ -456,6 +457,14 @@ invoke_executable_synchronous_capture(const tstr* path, const tstr* invoke_name,
 				                                    .data = { .error = TSTR_LIT(
 				                                                  "OOM in argument allocation") } };
 		}
+
+		res = pipe(stderr_info.fds);
+		if(res != 0) {
+
+			return (ShellExecuteSyncCaptureResult){ .type = ShellExecuteSyncCaptureResultTypeError,
+				                                    .data = { .error = TSTR_LIT(
+				                                                  "error in creating pipe") } };
+		}
 	}
 
 	const ShellPipeState pipe_state = { .array = &pipe_info_array,
@@ -465,19 +474,20 @@ invoke_executable_synchronous_capture(const tstr* path, const tstr* invoke_name,
 		                                    .stdout = { .is_pipe = true, .idx = 1 },
 		                                } };
 
-	ShellRedirectSettings settings = { .stdout = { .append = false, .location = tstr_null() },
-		                               .stderr = { .append = true,
-		                                           .location = TSTR_LIT("/dev/null") } };
+	ShellRedirectSettings settings = { .stdout = { .type = ShellRedirectLocationTypeNone,
+		                                           .data = {} },
+		                               .stderr = { .type = ShellRedirectLocationTypePipe,
+		                                           .data = { .pipe = { .pipe = stderr_info } } } };
 
 	ShellExecuteAsyncResult result =
 	    invoke_executable_impl(path, invoke_name, arguments, &settings, &pipe_state, envs);
 
-	tstr_free(&settings.stderr.location);
 	TVEC_FREE(ShellPipeInfo, &pipe_info_array);
 
 	// close unused ends in this process
 	IGNORE_RESULT close(stdin_info.fds[PIPE_READ_END]);
 	IGNORE_RESULT close(stdout_info.fds[PIPE_WRITE_END]);
+	IGNORE_RESULT close(stderr_info.fds[PIPE_WRITE_END]);
 
 	// close stdin, as we don't provide anything there
 	IGNORE_RESULT close(stdin_info.fds[PIPE_WRITE_END]);
@@ -486,6 +496,7 @@ invoke_executable_synchronous_capture(const tstr* path, const tstr* invoke_name,
 
 		// on error close this too
 		IGNORE_RESULT close(stdout_info.fds[PIPE_READ_END]);
+		IGNORE_RESULT close(stderr_info.fds[PIPE_READ_END]);
 
 		return (ShellExecuteSyncCaptureResult){ .type = ShellExecuteSyncCaptureResultTypeError,
 			                                    .data = { .error = result.data.error } };

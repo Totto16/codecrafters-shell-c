@@ -1240,7 +1240,7 @@ shell_io_fn_fprintf(shell_io_context ctx, FILE* restrict stream, const char* res
 
 static void free_shell_io_context_state(ShellIOContextState state) {
 	if(state.type == ShellIOContextStateTypeRedirect) {
-		shell_redirect_close_file(state.data.redirect.fd);
+		shell_redirect_close(state.data.redirect.fd);
 	}
 }
 
@@ -1266,7 +1266,7 @@ static ShellIO get_shell_io_in_current_context(const ShellRedirectSettings* cons
 
 	if(shell_redirect_is_set(&(settings->stdout))) {
 
-		int fd = shell_redirect_open_file(&(settings->stdout));
+		int fd = shell_redirect_open(&(settings->stdout));
 
 		if(fd < 0) {
 			free_shell_io_context(context);
@@ -1279,7 +1279,7 @@ static ShellIO get_shell_io_in_current_context(const ShellRedirectSettings* cons
 
 	if(shell_redirect_is_set(&(settings->stderr))) {
 
-		int fd = shell_redirect_open_file(&(settings->stderr));
+		int fd = shell_redirect_open(&(settings->stderr));
 
 		if(fd < 0) {
 			free_shell_io_context(context);
@@ -1428,30 +1428,80 @@ ExitCode invoke_shell_builtin_in_subshell(const ShellCommandBuiltin* builtin, Sh
 }
 
 NODISCARD bool shell_redirect_is_set(const ShellRedirectLocation* location) {
-	return (!(tstr_is_null(&(location->location))));
+	return location->type != ShellRedirectLocationTypeNone;
 }
 
-NODISCARD int shell_redirect_open_file(const ShellRedirectLocation* location) {
+NODISCARD int shell_redirect_open(const ShellRedirectLocation* location) {
 
-	// NOTE: when truncating, we just replace the files comment, but we don't emit a warning if
-	// the file already exists, as bash doesn't do that neither
+	switch(location->type) {
+		case ShellRedirectLocationTypeNone: {
+			return -1;
+		}
+		case ShellRedirectLocationTypeFile: {
+			ShellRedirectLocationFile file = location->data.file;
+			// NOTE: when truncating, we just replace the files comment, but we don't emit a warning
+			// if the file already exists, as bash doesn't do that neither
 
-	int o_flags = O_WRONLY | O_CREAT;
+			int o_flags = O_WRONLY | O_CREAT;
 
-	if(location->append) {
-		o_flags |= O_APPEND;
-	} else {
-		o_flags |= O_TRUNC;
+			if(file.append) {
+				o_flags |= O_APPEND;
+			} else {
+				o_flags |= O_TRUNC;
+			}
+
+			int fd = open(tstr_cstr(&(file.location)), o_flags, OMODE_DEFAULT);
+
+			return fd;
+		}
+		case ShellRedirectLocationTypePipe: {
+
+			ShellRedirectLocationPipe pipe = location->data.pipe;
+
+			// there is nothing to open, just pass on the correct end of the pipe and close the
+			// other one
+
+			IGNORE_RESULT close(pipe.pipe.fds[PIPE_READ_END]);
+
+			return pipe.pipe.fds[PIPE_WRITE_END];
+		}
+		default: {
+			return -1;
+		}
 	}
-
-	int fd = open(tstr_cstr(&(location->location)), o_flags, OMODE_DEFAULT);
-
-	return fd;
 }
 
-void shell_redirect_close_file(int fd) {
+void shell_redirect_close(int fd) {
 
 	int cres = close(fd);
 	// TODO(Totto): maybe report errors here
 	UNUSED(cres);
+}
+
+void free_shell_redirect_location(ShellRedirectLocation* location) {
+
+	switch(location->type) {
+		case ShellRedirectLocationTypeNone: {
+			break;
+		}
+		case ShellRedirectLocationTypeFile: {
+			ShellRedirectLocationFile file = location->data.file;
+			// NOTE: when truncating, we just replace the files comment, but we don't emit a warning
+			// if the file already exists, as bash doesn't do that neither
+
+			tstr_free(&(file.location));
+			break;
+		}
+		case ShellRedirectLocationTypePipe: {
+
+			ShellRedirectLocationPipe pipe = location->data.pipe;
+
+			IGNORE_RESULT close(pipe.pipe.fds[PIPE_READ_END]);
+			IGNORE_RESULT close(pipe.pipe.fds[PIPE_WRITE_END]);
+			break;
+		}
+		default: {
+			break;
+		}
+	}
 }

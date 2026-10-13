@@ -28,6 +28,33 @@ typedef struct {
 typedef struct {
 	tstr location;
 	bool append;
+} ShellRedirectLocationFile;
+
+#define PIPE_READ_END 0
+#define PIPE_WRITE_END 1
+
+#define PIPE_AMOUNT 2
+
+typedef struct {
+	int fds[PIPE_AMOUNT];
+} ShellPipeInfo;
+
+typedef struct {
+	ShellPipeInfo pipe;
+} ShellRedirectLocationPipe;
+
+typedef enum : uint8_t {
+	ShellRedirectLocationTypeNone = 0,
+	ShellRedirectLocationTypeFile,
+	ShellRedirectLocationTypePipe
+} ShellRedirectLocationType;
+
+typedef struct {
+	ShellRedirectLocationType type;
+	union {
+		ShellRedirectLocationFile file;
+		ShellRedirectLocationPipe pipe;
+	} data;
 } ShellRedirectLocation;
 
 typedef struct {
@@ -37,18 +64,15 @@ typedef struct {
 
 NODISCARD bool shell_redirect_is_set(const ShellRedirectLocation* location);
 
-NODISCARD int shell_redirect_open_file(const ShellRedirectLocation* location);
+NODISCARD int shell_redirect_open(const ShellRedirectLocation* location);
 
-void shell_redirect_close_file(int fd);
+void shell_redirect_close(int fd);
+
+void free_shell_redirect_location(ShellRedirectLocation* location);
 
 ExitCode invoke_shell_builtin_in_current_context(const ShellCommandBuiltin* builtin,
                                                  ShellHandle shell,
                                                  const ShellRedirectSettings* settings);
-
-#define PIPE_READ_END 0
-#define PIPE_WRITE_END 1
-
-#define PIPE_AMOUNT 2
 
 typedef struct {
 	bool is_pipe;
@@ -59,10 +83,6 @@ typedef struct {
 	ShellMaybePipe stdin;
 	ShellMaybePipe stdout;
 } ShellPipeSettings;
-
-typedef struct {
-	int fds[PIPE_AMOUNT];
-} ShellPipeInfo;
 
 TVEC_DEFINE_VEC_TYPE(ShellPipeInfo)
 

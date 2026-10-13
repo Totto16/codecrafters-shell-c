@@ -362,8 +362,8 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 	ParsedProgram current_program = {
 		.program = { .parsed = tstr_null(), .original = TSTR_TSV("") },
 		.args = TVEC_EMPTY(ShellArgument),
-		.settings = { .stdout = { .location = tstr_null(), .append = false },
-		              .stderr = { .location = tstr_null(), .append = false } }
+		.settings = { .stdout = { .type = ShellRedirectLocationTypeNone },
+		              .stderr = { .type = ShellRedirectLocationTypeNone } }
 	};
 
 	for(size_t i = 0; i < TVEC_LENGTH(ShellArgument, arguments); ++i) {
@@ -376,6 +376,7 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 		ShellRedirectLocation* location = NULL;
 		bool append = false;
 		bool pipe = false;
+		bool background = false;
 
 		if(tstr_view_eq(arg->original, ">") || tstr_view_eq(arg->original, "1>")) {
 			location = &current_program.settings.stdout;
@@ -391,12 +392,17 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 			append = true;
 		} else if(tstr_view_eq(arg->original, "|")) {
 			pipe = true;
+		} else if(tstr_view_eq(arg->original, "&")) {
+			background = true;
 		}
+
+		// TODO
+		UNUSED(background);
 
 		if(location != NULL) {
 
 			// check that we only have one redirection per program per output stream
-			if(!tstr_is_null(&(location->location))) {
+			if(shell_redirect_is_set(location)) {
 				return (ParsedPipelineResult){
 					.is_ok = false,
 					.data = { .error = TSTR_LIT(
@@ -447,7 +453,9 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 					RETURN_IMPL_ERROR("normalized path is not absolute");
 				}
 
-				*location = (ShellRedirectLocation){ .location = path, .append = append };
+				*location = (ShellRedirectLocation){ .type = ShellRedirectLocationTypeFile,
+					                                 .data = { .file = { .location = path,
+					                                                     .append = append } } };
 			}
 
 			// NOTE: free these two arguments, they are no longer needed, we don't
@@ -487,8 +495,8 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 			current_program = (ParsedProgram){
 				.program = { .parsed = tstr_null(), .original = TSTR_TSV("") },
 				.args = TVEC_EMPTY(ShellArgument),
-				.settings = { .stdout = { .location = tstr_null(), .append = false },
-				              .stderr = { .location = tstr_null(), .append = false } }
+				.settings = { .stdout = { .type = ShellRedirectLocationTypeNone, .data = {} },
+				              .stderr = { .type = ShellRedirectLocationTypeNone, .data = {} } }
 			};
 
 		} else {
@@ -515,7 +523,7 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 
 	if(tstr_is_null(&(current_program.program.parsed))) {
 
-		// TODO: free state before returning an error
+		// TODO(Totto): free state before returning an error
 
 		return (ParsedPipelineResult){
 			.is_ok = false,
@@ -536,8 +544,8 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 		current_program = (ParsedProgram){
 			.program = { .parsed = tstr_null(), .original = TSTR_TSV("") },
 			.args = TVEC_EMPTY(ShellArgument),
-			.settings = { .stdout = { .location = tstr_null(), .append = false },
-			              .stderr = { .location = tstr_null(), .append = false } }
+			.settings = { .stdout = { .type = ShellRedirectLocationTypeNone, .data = {} },
+			              .stderr = { .type = ShellRedirectLocationTypeNone, .data = {} } }
 		};
 	}
 
@@ -546,11 +554,6 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 
 void free_shell_argument(ShellArgument* arg) {
 	tstr_free(&(arg->parsed));
-}
-
-static void free_shell_redirect_location(ShellRedirectLocation* location) {
-
-	tstr_free(&(location->location));
 }
 
 static void free_shell_redirect_settings(ShellRedirectSettings* settings) {
@@ -735,7 +738,8 @@ ShellParseDataResult shell_parse_data(tstr_view input, const ShellHandle shell) 
 			                           .data = { .error = program_res.data.error } };
 	}
 
-	// TODO: don't add empty entries
+	// TODO(Totto): don't add empty entries
+	// for that we need the result of the parser first
 	bool ok = shell.function.add_to_history(shell.context, input);
 	if(!ok) {
 		// move program_res.data.error ownership to the ShellParseDataResult struct
