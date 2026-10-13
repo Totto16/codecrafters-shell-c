@@ -863,9 +863,82 @@ static const BuiltinCommand builtin_function_history = {
 	.help = history_help,
 };
 
+typedef struct {
+	int todo;
+} CompleteData;
+
+TRTTI_DECLARE_TYPE_AS_SUPPORTED(CompleteData)
+
+TRTTI_IMPLEMENTATION_FOR_TYPE(CompleteData)
+
+static ShellParseArgumentsResult complete_parse_arguments(const ShellArguments* args) {
+
+	// TODO(Totto): support options to complete
+
+	if(args->length == 0) {
+		CompleteData complete_data = { .todo = 42 };
+		RETURN_ARGUMENT(CompleteData, complete_data);
+	}
+
+	return (ShellParseArgumentsResult){
+		.is_ok = false, .data = { .error = TSTR_LIT("complete: too many arguments") }
+	};
+}
+
+static void complete_free_arguments(shell_dynamic_args args) {
+	TRTTI_DESTROY(CompleteData, args);
+}
+
+static ExitCode complete_invoke(shell_dynamic_args args, const ShellHandle shell,
+                                const ShellIO io) {
+	UNUSED(shell);
+	CompleteData* complete_data = TRTTI_ANNOTATED_PTR_CAST(CompleteData, args);
+
+	// TODO
+	UNUSED(complete_data);
+	RETURN_IMPL_ERROR("complete", "TODO");
+}
+
+static tstr_static complete_help(void) {
+	return TSTR_STATIC_LIT(
+	    "complete: complete [-abcdefgjksuv] [-pr] [-DEI] [-o option] [-A action] [-G globpat] [-W "
+	    "wordlist] [-F function] [-C command] [-X filterpat] [-P prefix] [-S suffix] [name ...]\n"
+	    "Specify how arguments are to be completed by Readline.\n"
+	    "\n"
+	    "For each NAME, specify how arguments are to be completed.  If no options\n"
+	    "or NAMEs are supplied, display existing completion specifications in a way\n"
+	    "that allows them to be reused as input.\n"
+	    "\n"
+	    "Options:\n"
+	    "  -p        print existing completion specifications in a reusable format\n"
+	    "  -r        remove a completion specification for each NAME, or, if no\n"
+	    "            NAMEs are supplied, all completion specifications\n"
+	    "  -D        apply the completions and actions as the default for commands\n"
+	    "            without any specific completion defined\n"
+	    "  -E        apply the completions and actions to \"empty\" commands --\n"
+	    "            completion attempted on a blank line\n"
+	    "  -I        apply the completions and actions to the initial (usually the\n"
+	    "            command) word\n"
+	    "\n"
+	    "When completion is attempted, the actions are applied in the order the\n"
+	    "uppercase-letter options are listed above. If multiple options are supplied,\n"
+	    "the -D option takes precedence over -E, and both take precedence over -I.\n"
+	    "\n"
+	    "Exit Status:\n"
+	    "Returns success unless an invalid option is supplied or an error occurs.\n");
+}
+
+static const BuiltinCommand builtin_function_complete = {
+	.name = TSTR_STATIC_LIT_CONST("complete"),
+	.validator = { .parse = complete_parse_arguments, .free = complete_free_arguments },
+	.invoke = complete_invoke,
+	.help = complete_help,
+};
+
 const BuiltinCommand g_builtin_functions[] = {
-	builtin_function_exit, builtin_function_echo, builtin_function_type,
-	builtin_function_pwd,  builtin_function_cd,   builtin_function_history,
+	builtin_function_exit,     builtin_function_echo, builtin_function_type,
+	builtin_function_pwd,      builtin_function_cd,   builtin_function_history,
+	builtin_function_complete,
 	// TODO(Totto): add help builtin
 };
 
