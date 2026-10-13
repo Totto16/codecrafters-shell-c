@@ -66,3 +66,33 @@ NODISCARD ShellExecuteAsyncResult invoke_executable_async(const tstr* path, cons
                                                           const ShellArguments* arguments,
                                                           const ShellRedirectSettings* settings,
                                                           const ShellPipeState* pipe_state);
+
+typedef enum : uint8_t {
+	ShellExecuteSyncCaptureResultTypeError = 0,
+	ShellExecuteSyncCaptureResultTypeOk,
+	ShellExecuteSyncCaptureResultTypeCrash
+} ShellExecuteSyncCaptureResultType;
+
+typedef struct {
+	bool normal_exit;
+	union {
+		ShellSignal signal;
+		ExitCode exit;
+	} data;
+} ShellExecuteSyncCaptureResultCrash;
+
+typedef struct {
+	tstr data;
+} ShellExecuteSyncCaptureResultOk;
+
+typedef struct {
+	ShellExecuteSyncCaptureResultType type;
+	union {
+		tstr error;
+		ShellExecuteSyncCaptureResultOk ok;
+		ShellExecuteSyncCaptureResultCrash crash;
+	} data;
+} ShellExecuteSyncCaptureResult;
+
+NODISCARD ShellExecuteSyncCaptureResult invoke_executable_synchronous_capture(
+    const tstr* path, const tstr* invoke_name, const ShellArguments* arguments);

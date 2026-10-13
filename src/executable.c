@@ -390,3 +390,203 @@ NODISCARD ShellExecuteAsyncResult invoke_executable_async(const tstr* path, cons
 
 	return invoke_executable_impl(path, invoke_name, arguments, settings, pipe_state);
 }
+
+#define READ_BUF_SIZE 1024
+
+NODISCARD ShellExecuteSyncCaptureResult invoke_executable_synchronous_capture(
+    const tstr* path, const tstr* invoke_name, const ShellArguments* arguments) {
+
+	ShellPipeInfoArray pipe_info_array = TVEC_EMPTY(ShellPipeInfo);
+
+	ShellPipeInfo stdin_info = { .fds = { 0, 0 } };
+	ShellPipeInfo stdout_info = { .fds = { 0, 0 } };
+
+	{
+
+		int res = pipe(stdin_info.fds);
+		if(res != 0) {
+
+			return (ShellExecuteSyncCaptureResult){ .type = ShellExecuteSyncCaptureResultTypeError,
+				                                    .data = { .error = TSTR_LIT(
+				                                                  "error in creating pipe") } };
+		}
+
+		TvecResult res2 = TVEC_PUSH(ShellPipeInfo, &pipe_info_array, stdin_info);
+
+		if(res2 != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
+
+			return (ShellExecuteSyncCaptureResult){ .type = ShellExecuteSyncCaptureResultTypeError,
+				                                    .data = { .error = TSTR_LIT(
+				                                                  "OOM in argument allocation") } };
+		}
+
+		res = pipe(stdout_info.fds);
+		if(res != 0) {
+
+			return (ShellExecuteSyncCaptureResult){ .type = ShellExecuteSyncCaptureResultTypeError,
+				                                    .data = { .error = TSTR_LIT(
+				                                                  "error in creating pipe") } };
+		}
+
+		res2 = TVEC_PUSH(ShellPipeInfo, &pipe_info_array, stdout_info);
+
+		if(res2 != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
+
+			return (ShellExecuteSyncCaptureResult){ .type = ShellExecuteSyncCaptureResultTypeError,
+				                                    .data = { .error = TSTR_LIT(
+				                                                  "OOM in argument allocation") } };
+		}
+	}
+
+	const ShellPipeState pipe_state = { .array = &pipe_info_array,
+		                                .close = { .start = 0, .end = 1 },
+		                                .settings = {
+		                                    .stdin = { .is_pipe = true, .idx = 0 },
+		                                    .stdout = { .is_pipe = true, .idx = 1 },
+		                                } };
+
+	ShellRedirectSettings settings = { .stdout = { .append = false, .location = tstr_null() },
+		                               .stderr = { .append = true,
+		                                           .location = TSTR_LIT("/dev/null") } };
+
+	ShellExecuteAsyncResult result =
+	    invoke_executable_impl(path, invoke_name, arguments, &settings, &pipe_state);
+
+	tstr_free(&settings.stderr.location);
+
+	// close unused ends in this process
+	IGNORE_RESULT close(stdin_info.fds[PIPE_READ_END]);
+	IGNORE_RESULT close(stdout_info.fds[PIPE_WRITE_END]);
+
+	// close stdin, as we don't provide anything there
+	IGNORE_RESULT close(stdin_info.fds[PIPE_WRITE_END]);
+
+	if(!result.is_ok) {
+
+		// on error close this too
+		IGNORE_RESULT close(stdout_info.fds[PIPE_READ_END]);
+
+		return (ShellExecuteSyncCaptureResult){ .type = ShellExecuteSyncCaptureResultTypeError,
+			                                    .data = { .error = result.data.error } };
+	}
+
+	ShellExecuteAsyncHandle handle = result.data.handle;
+
+	// read data until the process exited
+
+	bool exited = false;
+	bool read_finished = false;
+	ShellExecuteSyncCaptureResultCrash exit_result = { .normal_exit = true, .data = { .exit = 0 } };
+	tstr buf = tstr_from("");
+	char read_buf[READ_BUF_SIZE];
+	const int read_fd = stdout_info.fds[PIPE_READ_END];
+
+	while(true) {
+
+		if(exited) {
+			return (ShellExecuteSyncCaptureResult){
+				.type = ShellExecuteSyncCaptureResultTypeError,
+				.data = { .error = TSTR_LIT("invalid state in state machine") }
+			};
+		}
+
+		const int options = read_finished ? 0 : WNOHANG;
+
+		int status = 0;
+		int res = waitpid(handle.child_pid, &status, options);
+		if(res < 0) {
+			return (
+			    ShellExecuteSyncCaptureResult){ .type = ShellExecuteSyncCaptureResultTypeError,
+				                                .data = { .error = TSTR_LIT("waitpid error") } };
+		}
+
+		if(res == 0) {
+			// we have no status updates, so go to the read portion
+			goto read_portion;
+		}
+
+		// we are finished, we set the exit flag and read the rest of the data
+		exited = true;
+
+		if(WIFEXITED(status)) {
+			uint8_t exit_status = (uint8_t)WEXITSTATUS(status);
+			exit_result = (ShellExecuteSyncCaptureResultCrash){ .normal_exit = true,
+				                                                .data = { .exit = exit_status } };
+		} else if(WIFSIGNALED(status)) {
+			uint8_t signal_number = WTERMSIG(status);
+			exit_result =
+			    (ShellExecuteSyncCaptureResultCrash){ .normal_exit = false,
+				                                      .data = { .signal = signal_number } };
+		}
+
+		if(read_finished) {
+			break;
+		}
+
+	read_portion:
+		if(read_finished) {
+			return (ShellExecuteSyncCaptureResult){
+				.type = ShellExecuteSyncCaptureResultTypeError,
+				.data = { .error = TSTR_LIT("invalid state in state machine") }
+			};
+		}
+
+		do {
+			// we read a chunk, if we already have exited, until we have read all, otherwise we just
+			// return to the waitpid call, so that that is serviced
+
+			ssize_t read_res = read(read_fd, read_buf, READ_BUF_SIZE);
+
+			if(read_res == 0) {
+				read_finished = true;
+				if(exited) {
+					goto out_of_loop;
+				}
+
+				break;
+			}
+
+			if(read_res < 0) {
+				return (ShellExecuteSyncCaptureResult){
+					.type = ShellExecuteSyncCaptureResultTypeError,
+					.data = { .error = TSTR_LIT("a read error occurred") }
+				};
+			}
+
+			TStrResult cat_res = tstr_cat_len(&buf, read_buf, (size_t)read_res);
+
+			if(cat_res != TStrResultOk) {
+				tstr_free(&buf);
+
+				return (ShellExecuteSyncCaptureResult){
+					.type = ShellExecuteSyncCaptureResultTypeError,
+					.data = { .error = TSTR_LIT("OOM in string concatenation") }
+				};
+			}
+
+		} while(exited);
+	}
+
+out_of_loop:
+
+	IGNORE_RESULT close(read_fd);
+
+	if(!read_finished || !exited) {
+		return (ShellExecuteSyncCaptureResult){ .type = ShellExecuteSyncCaptureResultTypeError,
+			                                    .data = { .error = TSTR_LIT(
+			                                                  "invalid state in state machine") } };
+	}
+
+	if(exit_result.normal_exit && exit_result.data.exit == 0) {
+		// we exited normally
+
+		return (ShellExecuteSyncCaptureResult){ .type = ShellExecuteSyncCaptureResultTypeOk,
+			                                    .data = { .ok = { .data = buf } } };
+	}
+	// we had an error
+
+	tstr_free(&buf);
+
+	return (ShellExecuteSyncCaptureResult){ .type = ShellExecuteSyncCaptureResultTypeCrash,
+		                                    .data = { .crash = exit_result } };
+}

@@ -1916,6 +1916,193 @@ NODISCARD static RLCompletionResult rl_complete_filename_impl(ShellState* state,
 	return completion_res;
 }
 
+typedef struct {
+	ShellArgument arg0;
+	ShellArguments args;
+	const ShellCompletion* completion;
+} ShellResolvedCompletionLine;
+
+typedef struct {
+	bool is_ok;
+	union {
+		ShellResolvedCompletionLine resolved;
+	} data;
+} ShellCompletionLineResult;
+
+NODISCARD static ShellCompletionLineResult shell_resolve_completion_line_impl(ShellState* state,
+                                                                              tstr_view prefix) {
+
+	// first get the command, if there is one, for that use the parser, and if it returns a command,
+	// use the last one
+	// TODO: do we select the correct comamdn here based on the result? doe rl take the cursor in
+	// consideration or not?
+
+	RTTIAnnotatedValue state_rtti = TRTTI_ANNOTATED_VALUE_GET(ShellState, state);
+	ShellHandle shell_handle = SHELL_HANDLE_SYNCHRONOUS(state_rtti);
+	ShellParseDataResult parse = shell_parse_data(prefix, shell_handle);
+
+	switch(parse.type) {
+		case ShellParseDataResultTypePipeline: {
+			ShellParseDataPipeline pipeline = parse.data.pipeline;
+
+			ShellCompletionLineResult result = { .is_ok = false, .data = {} };
+
+			// duplicate the last entry
+			const size_t pipeline_length = TVEC_LENGTH(ShellCommand, pipeline.commands);
+
+			if(pipeline_length == 0) {
+				result = (ShellCompletionLineResult){ .is_ok = false, .data = {} };
+				goto return_result;
+			}
+
+			ShellCommand* const command =
+			    TVEC_GET_AT_MUT(ShellCommand, &(pipeline.commands), (pipeline_length - 1));
+			ASSERT(command != NULL);
+
+			ShellArgument* arg0 = &(command->arg0);
+
+			const ShellCompletion* completion =
+			    shell_get_completion_impl(&(state->completion_state), &(arg0->parsed));
+
+			if(completion == NULL) {
+				result = (ShellCompletionLineResult){ .is_ok = false, .data = {} };
+				goto return_result;
+			}
+
+			result = (ShellCompletionLineResult){ .is_ok = true,
+				                                  .data = { .resolved = {
+				                                                .arg0 = *arg0,
+				                                                .args = command->args,
+				                                                .completion = completion,
+				                                            } } };
+
+			// we move the arg0 and args out of the command, before it gets free, so we don't need
+			// to copy it
+			*arg0 = (ShellArgument){ .parsed = tstr_null(), .original = TSTR_TSV("") };
+
+			command->args = TVEC_EMPTY(ShellArgument);
+
+		return_result:
+			free_shell_pipeline(&pipeline);
+
+			return result;
+		}
+		case ShellParseDataResultTypeCommandsNotFound: {
+			free_shell_commands_not_found(&parse.data.not_found);
+
+			return (ShellCompletionLineResult){ .is_ok = false, .data = {} };
+		}
+		case ShellParseDataResultTypeEmpty: {
+			return (ShellCompletionLineResult){ .is_ok = false, .data = {} };
+		}
+		case ShellParseDataResultTypeError: {
+
+			tstr_free(&parse.data.error);
+			return (ShellCompletionLineResult){ .is_ok = false, .data = {} };
+		}
+		default: {
+			RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+			RETURNS_VOID shell_print_error("[INTERNAL] Invalid parse result\n");
+			return (ShellCompletionLineResult){ .is_ok = false, .data = {} };
+		}
+	}
+}
+
+static void free_resolved_completion_line(ShellResolvedCompletionLine* resolved) {
+	free_shell_argument(&(resolved->arg0));
+	free_shell_arguments(&(resolved->args));
+}
+
+NODISCARD static RLCompletionResult
+rl_complete_completion_impl(ShellState* state, ShellResolvedCompletionLine completion,
+                            tstr_view prefix) {
+
+	// TODO
+	UNUSED(prefix);
+	UNUSED(state);
+
+	const tstr* path = &(completion.completion->script);
+	const tstr* invoke_name = &(completion.completion->script);
+	ShellArguments arguments = TVEC_EMPTY(ShellArgument);
+
+	ShellExecuteSyncCaptureResult exec_result =
+	    invoke_executable_synchronous_capture(path, invoke_name, &arguments);
+
+	free_resolved_completion_line(&completion);
+
+	if(exec_result.type != ShellExecuteSyncCaptureResultTypeOk) {
+
+		if(exec_result.type == ShellExecuteSyncCaptureResultTypeError) {
+
+			return (RLCompletionResult){ .type = RLCompletionResultTypeError,
+				                         .data = { .error = exec_result.data.error } };
+		} else if(exec_result.type == ShellExecuteSyncCaptureResultTypeCrash) {
+			// TODO: use the crash condition and pass it on as error
+			return (RLCompletionResult){ .type = RLCompletionResultTypeError,
+				                         .data = { .error = TSTR_LIT("The process crashed") } };
+
+		} else {
+			return (RLCompletionResult){ .type = RLCompletionResultTypeError,
+				                         .data = { .error = TSTR_LIT("Invalid execute result") } };
+		}
+	}
+
+	ShellExecuteSyncCaptureResultOk ok = exec_result.data.ok;
+
+	TrieResultEntryArray array = TVEC_EMPTY(TrieResultEntry);
+
+	tstr_view data = tstr_as_view(&(ok.data));
+
+	size_t offset = 0;
+
+	while(data.len != 0) {
+
+		tstr_view data_to_add = (tstr_view){ .data = NULL, .len = 0 };
+
+		if(offset >= data.len) {
+			// we are at the end, add the entire thing
+			data_to_add = data;
+		} else {
+			// check if we are at a newline
+			const char character = data.data[offset];
+
+			if(character == '\n') {
+				// if we are handle this data
+
+				if(offset == 0) {
+					// ignore empty lines
+					offset = 0;
+					data = tstr_sub(data, 0, data.len - 1);
+					continue;
+				}
+
+				data_to_add = (tstr_view){ .data = data.data, .len = (offset - 1) };
+				offset = 0;
+				data = tstr_sub(data, 0, data.len - offset);
+			} else {
+				offset++;
+				continue;
+			}
+		}
+
+		TrieResultEntry entry = { .name = data_to_add, .flag = 0 };
+
+		TvecResult res = TVEC_PUSH(TrieResultEntry, &array, entry);
+
+		if(res != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
+			return (
+			    RLCompletionResult){ .type = RLCompletionResultTypeError,
+				                     .data = { .error = TSTR_LIT("OOM in argument allocation") } };
+		}
+	}
+
+	RLCompletionResult result = completion_result_array_to_rl_completion_array(&array, prefix);
+	tstr_free(&(ok.data));
+
+	return result;
+}
+
 NODISCARD static RLCompletionResult
 shell_completion_function_rl_impl(ShellState* state, const char* text, int start, int end) {
 
@@ -1927,8 +2114,8 @@ shell_completion_function_rl_impl(ShellState* state, const char* text, int start
 
 	tstr_view string = (tstr_view){ .data = text, .len = (size_t)len };
 
-	// if start == 0, we have the first string, we only complete on that
 	if(start == 0) {
+		// if start == 0, we have the first string, we complete commands on that
 
 		const Trie* trie = state->completion_state.completion_trie;
 
@@ -1950,14 +2137,16 @@ shell_completion_function_rl_impl(ShellState* state, const char* text, int start
 	}
 
 	tstr_view before = (tstr_view){ .data = rl_line_buffer, .len = (size_t)(start - 1) };
-	UNUSED(before);
 
-	// TODO: better detect when needed
-	// NOTE: do this for every command for now
-	return rl_complete_filename_impl(state, string);
+	// we are in argument n of a command, we figure out which command, and if that command has a
+	// completer script, get the completion from that, otherwise we just complete filenames
+	ShellCompletionLineResult completion = shell_resolve_completion_line_impl(state, before);
 
-	/* return (RLCompletionResult){ .type = RLCompletionResultTypeError,
-	                             .data = { .error = TSTR_LIT("Not yet implemented") } }; */
+	if(!completion.is_ok) {
+		return rl_complete_filename_impl(state, string);
+	}
+
+	return rl_complete_completion_impl(state, completion.data.resolved, string);
 }
 
 static ShellState* g_rl_internal_completion_state = NULL;

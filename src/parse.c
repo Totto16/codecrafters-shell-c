@@ -86,8 +86,6 @@ typedef struct {
 \
 	} while(false)
 
-static void free_shell_argument(ShellArgument* arg);
-
 static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle shell) {
 	ShellArguments arguments = TVEC_EMPTY(ShellArgument);
 
@@ -546,7 +544,7 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 	return (ParsedPipelineResult){ .is_ok = true, .data = { .pipeline = pipeline } };
 }
 
-static void free_shell_argument(ShellArgument* arg) {
+void free_shell_argument(ShellArgument* arg) {
 	tstr_free(&(arg->parsed));
 }
 
@@ -560,7 +558,7 @@ static void free_shell_redirect_settings(ShellRedirectSettings* settings) {
 	free_shell_redirect_location(&(settings->stderr));
 }
 
-static void free_shell_arguments(ShellArguments* args) {
+void free_shell_arguments(ShellArguments* args) {
 
 	for(size_t i = 0; i < TVEC_LENGTH(ShellArgument, *args); ++i) {
 
@@ -585,6 +583,7 @@ static void free_shell_command_executable(ShellCommandExecutable* executable) {
 }
 
 static void free_shell_command(ShellCommand* command) {
+	free_shell_argument(&(command->arg0));
 	free_shell_arguments(&(command->args));
 	free_shell_redirect_settings(&(command->settings));
 
@@ -679,10 +678,9 @@ static ShellProcessProgramResult shell_process_program(ParsedProgram* program) {
 			ShellCommandBuiltin builtin_args = { .command = builtin_command,
 				                                 .args = args_res.data.args };
 
-			free_shell_argument(&(program->program));
-
 			ShellCommand command = { .type = ShellCommandTypeBuiltin,
 				                     .data = { .builtin = builtin_args },
+				                     .arg0 = program->program,
 				                     .args = program->args,
 				                     .settings = program->settings };
 
@@ -699,10 +697,9 @@ static ShellProcessProgramResult shell_process_program(ParsedProgram* program) {
 
 			};
 
-			free_shell_argument(&(program->program));
-
 			ShellCommand command = { .type = ShellCommandTypeExecutable,
 				                     .data = { .executable = executable },
+				                     .arg0 = program->program,
 				                     .args = program->args,
 				                     .settings = program->settings };
 

@@ -21,6 +21,7 @@ typedef struct {
 		ShellCommandBuiltin builtin;
 		ShellCommandExecutable executable;
 	} data;
+	ShellArgument arg0;
 	ShellArguments args;
 	ShellRedirectSettings settings;
 } ShellCommand;
@@ -62,3 +63,7 @@ NODISCARD ShellParseDataResult shell_parse_data(tstr_view input, const ShellHand
 void free_shell_pipeline(ShellParseDataPipeline* pipeline);
 
 void free_shell_commands_not_found(ShellCommandsNotFound* not_found);
+
+void free_shell_argument(ShellArgument* arg);
+
+void free_shell_arguments(ShellArguments* args);
