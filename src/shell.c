@@ -2014,6 +2014,14 @@ static void free_resolved_completion_line(ShellResolvedCompletionLine* resolved)
 	free_shell_arguments(&(resolved->args));
 }
 
+NODISCARD static ShellArgument shell_dup_shell_argument(const ShellArgument* arg) {
+	ShellArgument result = { .parsed = tstr_dup(&(arg->parsed)), .original = TSTR_TSV("") };
+
+	result.original = tstr_as_view(&result.parsed);
+
+	return result;
+}
+
 NODISCARD static RLCompletionResult
 rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view prefix) {
 
@@ -2021,10 +2029,49 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 	const tstr* invoke_name = &(completion.completion->script);
 	ShellArguments arguments = TVEC_EMPTY(ShellArgument);
 
+	{
+
+		ShellArgument argv1 = shell_dup_shell_argument(&(completion.arg0));
+
+		TvecResult res = TVEC_PUSH(ShellArgument, &arguments, argv1);
+
+		if(res != TvecResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/
+			return (RLCompletionResult){ .type = RLCompletionResultTypeError,
+				                         .data = {
+				                             .error = TSTR_LIT("OOM error in internal parsing") } };
+		}
+
+		ShellArgument argv2 = { .parsed = tstr_from_view(prefix), .original = prefix };
+
+		res = TVEC_PUSH(ShellArgument, &arguments, argv2);
+
+		if(res != TvecResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/
+			return (RLCompletionResult){ .type = RLCompletionResultTypeError,
+				                         .data = {
+				                             .error = TSTR_LIT("OOM error in internal parsing") } };
+		}
+
+		ShellArgument argv3 = { .parsed = tstr_null(), .original = TSTR_TSV("") };
+		if(TVEC_LENGTH(ShellArgument, completion.args) > 0) {
+			const ShellArgument* const arg1 = TVEC_GET_AT(ShellArgument, &(completion.args), 0);
+			ASSERT(arg1 != NULL);
+			argv3 = shell_dup_shell_argument(arg1);
+		}
+
+		res = TVEC_PUSH(ShellArgument, &arguments, argv3);
+
+		if(res != TvecResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/
+			return (RLCompletionResult){ .type = RLCompletionResultTypeError,
+				                         .data = {
+				                             .error = TSTR_LIT("OOM error in internal parsing") } };
+		}
+	}
+
 	ShellExecuteSyncCaptureResult exec_result =
 	    invoke_executable_synchronous_capture(path, invoke_name, &arguments);
 
 	free_resolved_completion_line(&completion);
+	free_shell_arguments(&arguments);
 
 	if(exec_result.type != ShellExecuteSyncCaptureResultTypeOk) {
 
@@ -2052,12 +2099,12 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 
 	while(data.len != 0) {
 
-		tstr_view data_to_add = (tstr_view){ .data = NULL, .len = 0 };
+		tstr_view data_to_add = TSTR_TSV("");
 
 		if(offset >= data.len) {
 			// we are at the end, add the entire thing
 			data_to_add = data;
-			data = (tstr_view){ .data = NULL, .len = 0 };
+			data = TSTR_TSV("");
 		} else {
 			// check if we are at a newline
 			const char character = data.data[offset];
@@ -2133,8 +2180,9 @@ shell_completion_function_rl_impl(ShellState* state, const char* text, int start
 
 	tstr_view before = (tstr_view){ .data = rl_line_buffer, .len = (size_t)(start - 1) };
 
-	// we are in argument n of a command, we figure out which command, and if that command has a
-	// completer script, get the completion from that, otherwise we just complete filenames
+	// we are in argument n of a command, we figure out which command, and if that command
+	// has a completer script, get the completion from that, otherwise we just complete
+	// filenames
 	ShellCompletionLineResult completion = shell_resolve_completion_line_impl(state, before);
 
 	if(completion.is_ok) {

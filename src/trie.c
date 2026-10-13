@@ -671,7 +671,7 @@ NODISCARD static size_t common_prefix_between_impl(tstr_view arg0, tstr_view arg
 NODISCARD tstr find_common_prefix(const TrieResultEntryArray* array) {
 	const size_t array_length = TVEC_LENGTH(TrieResultEntry, *array);
 
-	tstr_view common_prefix = (tstr_view){ .data = NULL, .len = 0 };
+	tstr_view common_prefix = TSTR_TSV("");
 
 	if(array_length == 0) {
 		return tstr_null();
