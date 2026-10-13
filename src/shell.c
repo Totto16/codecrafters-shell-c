@@ -11,6 +11,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <tmap/tmap.h>
 #include <tstr/tstr.h>
 
 #include "./builtins.h"
@@ -39,8 +40,17 @@ typedef struct {
 	ShellHistorySaveState history_state;
 } ShellInstanceState;
 
+TMAP_DEFINE_MAP_TYPE(tstr, TStr, ShellCompletion, ShellCompletionHashMap)
+
+typedef TMAP_TYPENAME_MAP(ShellCompletionHashMap) ShellCompletionHashMap;
+
+typedef struct {
+	ShellCompletionHashMap map;
+} ShellCompleteStorage;
+
 typedef struct {
 	Trie* completion_trie;
+	ShellCompleteStorage storage;
 } ShellCompletionState;
 
 typedef struct {
@@ -221,6 +231,62 @@ static tstr shell_virtual_fn_sync_process_history_file(shell_virtual_context ctx
 	}
 }
 
+static const ShellCompletion* shell_get_completion_impl(ShellCompletionState* state,
+                                                        const tstr* name) {
+
+	const ShellCompletion* completion =
+	    TMAP_GET(ShellCompletionHashMap, &(state->storage.map), *name);
+
+	if(completion == NULL) {
+		return NULL;
+	}
+
+	return completion;
+}
+
+static bool shell_set_completion_impl(ShellCompletionState* state, tstr name,
+                                      ShellCompletion completion) {
+
+	ShellCompletion* map_entry =
+	    TMAP_INSERT_SLOT(ShellCompletionHashMap, &(state->storage.map), name, false);
+	ASSERT(map_entry != NULL);
+
+	if(map_entry == TMAP_WOULD_OVERWRITE) {
+		// free the entry before overwriting it, as this is the expected behaviour of set rather
+		// then add, also free the name, as it is also duplicate
+
+		tstr_free(&name);
+
+		map_entry = TMAP_INSERT_SLOT(ShellCompletionHashMap, &(state->storage.map), name, true);
+		ASSERT(map_entry != NULL);
+		ASSERT(map_entry != TMAP_WOULD_OVERWRITE);
+
+		tstr_free(&map_entry->script);
+
+		*map_entry = completion;
+
+		return true;
+	}
+
+	*map_entry = completion;
+
+	return true;
+}
+
+static const ShellCompletion* shell_virtual_fn_sync_get_completion(shell_virtual_context ctx,
+                                                                   const tstr* name) {
+	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
+
+	return shell_get_completion_impl(&(state->completion_state), name);
+}
+
+static bool shell_virtual_fn_sync_set_completion(shell_virtual_context ctx, tstr name,
+                                                 ShellCompletion completion) {
+	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
+
+	return shell_set_completion_impl(&(state->completion_state), name, completion);
+}
+
 static tstr_view shell_virtual_fn_sync_get_current_working_directory(shell_virtual_context ctx) {
 
 	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
@@ -263,6 +329,8 @@ static const ShellVirtualFunctions g_shell_functions_synchronous = {
 	.add_to_history = shell_virtual_fn_sync_add_to_history,
 	.get_history = shell_virtual_fn_sync_get_history,
 	.process_history_file = shell_virtual_fn_sync_process_history_file,
+	.get_completion = shell_virtual_fn_sync_get_completion,
+	.set_completion = shell_virtual_fn_sync_set_completion,
 };
 
 #define SHELL_HANDLE_SYNCHRONOUS(ctx) \
@@ -353,6 +421,26 @@ static tstr shell_virtual_fn_subshell_process_history_file(shell_virtual_context
 	}
 }
 
+static const ShellCompletion* shell_virtual_fn_subshell_get_completion(shell_virtual_context ctx,
+                                                                       const tstr* name) {
+	UNUSED(ctx);
+	UNUSED(name);
+
+	// Not supported in subshells yet
+	return NULL;
+}
+
+static bool shell_virtual_fn_subshell_set_completion(shell_virtual_context ctx, tstr name,
+                                                     ShellCompletion completion) {
+
+	UNUSED(ctx);
+	UNUSED(name);
+	UNUSED(completion);
+
+	// Not supported in subshells yet
+	return false;
+}
+
 static tstr_view
 shell_virtual_fn_subshell_get_current_working_directory(shell_virtual_context ctx) {
 
@@ -396,6 +484,8 @@ static const ShellVirtualFunctions g_shell_functions_subshell = {
 	.add_to_history = shell_virtual_fn_subshell_add_to_history,
 	.get_history = shell_virtual_fn_subshell_get_history,
 	.process_history_file = shell_virtual_fn_subshell_process_history_file,
+	.get_completion = shell_virtual_fn_subshell_get_completion,
+	.set_completion = shell_virtual_fn_subshell_set_completion,
 };
 
 #define SHELL_HANDLE_SUBSHELL(ctx) { .context = (ctx), .function = g_shell_functions_subshell };
@@ -1209,7 +1299,10 @@ static ShellSetupResult shell_setup_repl(const char* const program_name) {
 					} ,
 					.history_state = {.last_append_idx = 0,.histfile = tstr_null() },
 				},
-				.completion_state =  {.completion_trie = NULL }
+				.completion_state =  {
+					.completion_trie = NULL,
+					.storage={ .map = TMAP_EMPTY(ShellCompletionHashMap) },
+				}
 	};
 
 	RETURNS_VOID shell_populate_state(&state);
@@ -1248,11 +1341,28 @@ static void free_input_history(ShellState* state) {
 }
 #endif
 
+static void free_completion_storage(ShellCompleteStorage* storage) {
+
+	TMAP_TYPENAME_ITER(ShellCompletionHashMap)
+	iter = TMAP_ITER_INIT(ShellCompletionHashMap, &(storage->map));
+
+	TMAP_TYPENAME_ENTRY(ShellCompletionHashMap) value;
+
+	while(TMAP_ITER_NEXT(ShellCompletionHashMap, &iter, &value)) {
+		tstr_free(&value.key);
+		tstr_free(&value.value.script);
+	}
+
+	TMAP_FREE(ShellCompletionHashMap, &(storage->map));
+}
+
 static void free_shell_completion_state(ShellCompletionState* completion_state) {
 
 	if(completion_state->completion_trie != NULL) {
 		free_trie(completion_state->completion_trie);
 	}
+
+	free_completion_storage(&(completion_state->storage));
 }
 
 static void free_shell_state(ShellState* state) {
@@ -1953,4 +2063,14 @@ ExitCode shell_execute_repl(const size_t argc, char* const* const argv) {
 	free_shell_state(&state);
 
 	return result;
+}
+
+TMAP_IMPLEMENT_MAP_TYPE(tstr, TStr, ShellCompletion, ShellCompletionHashMap)
+
+TMAP_HASH_FUNC_SIG(tstr, TStr) {
+	return TMAP_HASH_BYTES(tstr_cstr(&key), tstr_len(&key));
+}
+
+TMAP_EQ_FUNC_SIG(tstr, TStr) {
+	return tstr_eq(&key1, &key2);
 }

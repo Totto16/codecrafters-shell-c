@@ -865,6 +865,7 @@ static const BuiltinCommand builtin_function_history = {
 
 typedef enum : uint8_t {
 	CompleteTypePrint = 0,
+	CompleteTypeAdd,
 } CompleteType;
 
 typedef struct {
@@ -872,9 +873,15 @@ typedef struct {
 } CompletePrint;
 
 typedef struct {
+	tstr name;
+	tstr script;
+} CompleteAdd;
+
+typedef struct {
 	CompleteType type;
 	union {
 		CompletePrint print;
+		CompleteAdd add;
 	} data;
 } CompleteData;
 
@@ -921,6 +928,32 @@ static ShellParseArgumentsResult complete_parse_arguments(const ShellArguments* 
 		}
 	}
 
+	if(args->length == 3) {
+
+		const ShellArgument* const arg1 = TVEC_GET_AT(ShellArgument, args, 0);
+		ASSERT(arg1 != NULL);
+
+		const ShellArgument* const arg2 = TVEC_GET_AT(ShellArgument, args, 1);
+		ASSERT(arg2 != NULL);
+
+		const ShellArgument* const arg3 = TVEC_GET_AT(ShellArgument, args, 2);
+		ASSERT(arg3 != NULL);
+
+		if(tstr_eq_cstr(&(arg1->parsed), "-C")) {
+			tstr script = tstr_dup(&(arg2->parsed));
+			tstr name = tstr_dup(&(arg3->parsed));
+
+			CompleteData complete_data = { .type = CompleteTypeAdd,
+				                           .data = { .add = { .name = name, .script = script } } };
+			RETURN_ARGUMENT(CompleteData, complete_data);
+		} else {
+
+			return (ShellParseArgumentsResult){
+				.is_ok = false, .data = { .error = TSTR_LIT("complete: invalid arguments") }
+			};
+		}
+	}
+
 	return (ShellParseArgumentsResult){
 		.is_ok = false, .data = { .error = TSTR_LIT("complete: too many arguments") }
 	};
@@ -935,6 +968,11 @@ static void complete_free_arguments(shell_dynamic_args args) {
 			tstr_free(&(complete_data->data.print.name));
 			break;
 		}
+		case CompleteTypeAdd: {
+			tstr_free(&(complete_data->data.add.name));
+			tstr_free(&(complete_data->data.add.script));
+			break;
+		}
 		default: {
 			break;
 		}
@@ -945,19 +983,53 @@ static void complete_free_arguments(shell_dynamic_args args) {
 
 static ExitCode complete_invoke(shell_dynamic_args args, const ShellHandle shell,
                                 const ShellIO io) {
-	UNUSED(shell);
+
 	CompleteData* complete_data = TRTTI_ANNOTATED_PTR_CAST(CompleteData, args);
 
 	switch(complete_data->type) {
 		case CompleteTypePrint: {
+			const CompletePrint print = complete_data->data.print;
 
-			int res = SHELL_FPINTF(stdout, "complete: " TSTR_FMT ": no completion specification\n",
-			                       TSTR_FMT_ARGS(complete_data->data.print.name));
-			if(res < 0) {
-				RETURN_IO_ERROR("complete");
+			const ShellCompletion* completion =
+			    shell.function.get_completion(shell.context, &print.name);
+
+			if(completion == NULL) {
+				int res =
+				    SHELL_FPINTF(stdout, "complete: " TSTR_FMT ": no completion specification\n",
+				                 TSTR_FMT_ARGS(print.name));
+				if(res < 0) {
+					RETURN_IO_ERROR("complete");
+				}
+
+				return ExitCodeGenericError;
+			} else {
+
+				int res =
+				    SHELL_FPINTF(stdout, "complete -C '" TSTR_FMT "' " TSTR_FMT "\n",
+				                 TSTR_FMT_ARGS(completion->script), TSTR_FMT_ARGS(print.name));
+				if(res < 0) {
+					RETURN_IO_ERROR("complete");
+				}
+
+				return ExitCodeSuccess;
+			}
+		}
+		case CompleteTypeAdd: {
+			CompleteAdd* add = &(complete_data->data.add);
+
+			ShellCompletion completion = { .script = add->script };
+
+			bool ok = shell.function.set_completion(shell.context, add->name, completion);
+
+			if(!ok) {
+				RETURN_IMPL_ERROR("complete", "Can't store the script for the command");
 			}
 
-			return ExitCodeGenericError;
+			// reset the add data, as we moved it into the storage
+			add->name = tstr_null();
+			add->script = tstr_null();
+
+			return ExitCodeSuccess;
 		}
 		default: {
 			RETURN_IMPL_ERROR("complete", "Invalid complete type");

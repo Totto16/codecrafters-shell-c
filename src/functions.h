@@ -53,12 +53,24 @@ typedef tstr (*shell_fn_process_history_file)(shell_virtual_context ctx,
                                               const HistoryProcessData* data);
 
 typedef struct {
+	tstr script;
+} ShellCompletion;
+
+typedef const ShellCompletion* (*shell_fn_get_completion)(shell_virtual_context ctx,
+                                                          const tstr* name);
+
+typedef bool (*shell_fn_set_completion)(shell_virtual_context ctx, tstr name,
+                                        ShellCompletion completion);
+
+typedef struct {
 	shell_fn_get_current_working_directory get_current_working_directory;
 	shell_fn_set_current_working_directory set_current_working_directory;
 	shell_fn_exit exit;
 	shell_fn_add_to_history add_to_history;
 	shell_fn_get_history get_history;
 	shell_fn_process_history_file process_history_file;
+	shell_fn_get_completion get_completion;
+	shell_fn_set_completion set_completion;
 } ShellVirtualFunctions;
 
 typedef struct {
