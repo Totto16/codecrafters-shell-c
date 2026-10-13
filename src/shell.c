@@ -2061,14 +2061,45 @@ NODISCARD static ShellArgument shell_dup_shell_argument(const ShellArgument* arg
 	return result;
 }
 
+NODISCARD static tstr rl_get_script_invoke_name(const tstr* path) {
+
+	tstr_view whole = tstr_as_view(path);
+
+	if(whole.len == 0) {
+		return tstr_null();
+	}
+
+	size_t current_offset = whole.len;
+
+	while(true) {
+
+		if(current_offset == 0) {
+			// the entire script is the name
+			break;
+		}
+
+		const char character = whole.data[current_offset - 1];
+
+		if(character == '/') {
+			// we have the name, set whole to the name and break
+			whole = tstr_sub_until_end(whole, current_offset);
+			break;
+		}
+
+		current_offset--;
+	}
+
+	return tstr_from_view(whole);
+}
+
 NODISCARD static RLCompletionResult
 rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view prefix,
                             tstr_view all_text, size_t end) {
 
 	const tstr* path = &(completion.completion->script);
-	const tstr* invoke_name = tstr_is_null(&(completion.arg0.parsed))
-	                              ? &(completion.completion->script)
-	                              : &(completion.arg0.parsed);
+	tstr invoke_name = rl_get_script_invoke_name(path);
+
+	fprintf(stderr, "TODO: invoke name: " TSTR_FMT "\n", TSTR_FMT_ARGS(invoke_name));
 
 	ShellArguments arguments = TVEC_EMPTY(ShellArgument);
 
@@ -2157,11 +2188,12 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 	}
 
 	ShellExecuteSyncCaptureResult exec_result =
-	    invoke_executable_synchronous_capture(path, invoke_name, &arguments, &envs);
+	    invoke_executable_synchronous_capture(path, &invoke_name, &arguments, &envs);
 
 	free_resolved_completion_line(&completion);
 	free_shell_arguments(&arguments);
 	free_shell_envs(&envs);
+	tstr_free(&invoke_name);
 
 	if(exec_result.type != ShellExecuteSyncCaptureResultTypeOk) {
 
