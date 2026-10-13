@@ -8,4 +8,6 @@
 
 set -e # Exit on failure
 
+export SHELL_GLOBAL_DEBUG=1
+
 exec $(dirname "$0")/build/shell "$@"

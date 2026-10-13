@@ -54,11 +54,16 @@ typedef struct {
 } ShellCompletionState;
 
 typedef struct {
+	bool debug;
+} ShellEnvSettings;
+
+typedef struct {
 	CommandState command_state;
 	const bool interactive;
 	ShellInputState input_state;
 	ShellInstanceState global;
 	ShellCompletionState completion_state;
+	ShellEnvSettings settings;
 } ShellState;
 
 TRTTI_DECLARE_TYPE_AS_SUPPORTED(ShellState)
@@ -73,12 +78,11 @@ static tstr shell_get_prompt(const ShellState* const state) {
 	return TSTR_LIT("$ ");
 }
 
-__attribute__((format(printf, 1, 2))) static void shell_print_error(const char* message, ...) {
-	va_list args;
-	va_start(args, message);
+__attribute__((format(printf, 1, 0))) static void shell_print_error_impl_va(const char* message,
+                                                                            va_list args) {
 
 	int res = vfprintf(stderr, message, args);
-	va_end(args);
+
 	if(res < 0) {
 		fflush(stderr);
 		// Note: we already have an error, so no reporting possible here
@@ -89,6 +93,28 @@ __attribute__((format(printf, 1, 2))) static void shell_print_error(const char* 
 
 report_error_end:
 	return;
+}
+
+__attribute__((format(printf, 1, 2))) static void shell_print_error(const char* message, ...) {
+	va_list args;
+	va_start(args, message);
+
+	RETURNS_VOID shell_print_error_impl_va(message, args);
+
+	va_end(args);
+}
+
+__attribute__((format(printf, 2, 3))) MAYBE_UNUSED static void
+shell_global_debug(ShellState* state, const char* message, ...) {
+
+	if(state->settings.debug) {
+		va_list args;
+		va_start(args, message);
+
+		RETURNS_VOID shell_print_error_impl_va(message, args);
+
+		va_end(args);
+	}
 }
 
 static void shell_exit(ShellInstanceState* state, ExitCode code) {
@@ -638,7 +664,7 @@ static void shell_execute_command_synchronous(const ShellCommand* const command,
 					                               strsignal(signal));
 
 					// TODO(Totto): is this correct, can we just use it as uint8_t or do we need to
-					// add 18 for consitency with bash?
+					// add 128 for consitency with bash?
 					set_command_exit_code(state, signal);
 					break;
 				}
@@ -1269,6 +1295,18 @@ static void shell_populate_history(ShellState* state) {
 static void shell_populate_state(ShellState* state) {
 
 	RETURNS_VOID shell_populate_history(state);
+
+	{
+
+		const char* const shell_global_debug_env = getenv("SHELL_GLOBAL_DEBUG");
+
+		if(shell_global_debug_env == NULL) {
+			state->settings.debug = false;
+		} else {
+			// TODO: parse the value, accept truthy values and set the result
+			state->settings.debug = true;
+		}
+	}
 }
 
 typedef enum : uint8_t {
@@ -1337,11 +1375,12 @@ static ShellSetupResult shell_setup_repl(const char* const program_name) {
 		            .history = { .array = TVEC_EMPTY(tstr) ,
 					} ,
 					.history_state = {.last_append_idx = 0,.histfile = tstr_null() },
-				},
-				.completion_state =  {
-					.completion_trie = NULL,
-					.storage={ .map = TMAP_EMPTY(ShellCompletionHashMap) },
-				}
+			},
+		.completion_state =  {
+			.completion_trie = NULL,
+			.storage={ .map = TMAP_EMPTY(ShellCompletionHashMap) },
+		},
+		.settings = { .debug = false }
 	};
 
 	RETURNS_VOID shell_populate_state(&state);
@@ -1515,8 +1554,8 @@ typedef enum : TrieEntryFlag {
 	TrieFlagFileFlagValDir = 0x0400,
 } TrieFlagFile;
 
-NODISCARD [[maybe_unused]] static Trie* shell_get_completion_trie_for_dir(const tstr* path,
-                                                                          tstr_view dir_prefix) {
+NODISCARD MAYBE_UNUSED static Trie* shell_get_completion_trie_for_dir(const tstr* path,
+                                                                      tstr_view dir_prefix) {
 
 	Trie* trie = initialize_trie();
 
@@ -1670,7 +1709,7 @@ NODISCARD static bool shell_add_executables_in_path_to_completion(Trie* trie) {
 	return true;
 }
 
-NODISCARD [[maybe_unused]] static bool shell_populate_completion_state(ShellState* state) {
+NODISCARD MAYBE_UNUSED static bool shell_populate_completion_state(ShellState* state) {
 
 	Trie* trie = initialize_trie();
 
@@ -1973,8 +2012,8 @@ NODISCARD static ShellCompletionLineResult shell_resolve_completion_line_impl(Sh
 
 	// first get the command, if there is one, for that use the parser, and if it returns a command,
 	// use the last one
-	// TODO: do we select the correct comamdn here based on the result? doe rl take the cursor in
-	// consideration or not?
+	// TODO(Totto): do we select the correct command here based on the result? doe rl take the
+	// cursor in consideration or not?
 
 	RTTIAnnotatedValue state_rtti = TRTTI_ANNOTATED_VALUE_GET(ShellState, state);
 	ShellHandle shell_handle = SHELL_HANDLE_SYNCHRONOUS(state_rtti);
@@ -2099,8 +2138,6 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 	const tstr* path = &(completion.completion->script);
 	tstr invoke_name = rl_get_script_invoke_name(path);
 
-	fprintf(stderr, "TODO: invoke name: " TSTR_FMT "\n", TSTR_FMT_ARGS(invoke_name));
-
 	ShellArguments arguments = TVEC_EMPTY(ShellArgument);
 
 	{
@@ -2141,10 +2178,6 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 				argv3 = shell_dup_shell_argument(&completion.arg0);
 			}
 		}
-
-		// fprintf(stderr, "TODO: argv1: " TSTR_FMT "\n", TSTR_FMT_ARGS(argv1.parsed));
-		// fprintf(stderr, "TODO: argv2: " TSTR_FMT "\n", TSTR_FMT_ARGS(argv2.parsed));
-		// fprintf(stderr, "TODO: argv3: " TSTR_FMT "\n", TSTR_FMT_ARGS(argv3.parsed));
 
 		res = TVEC_PUSH(ShellArgument, &arguments, argv3);
 
@@ -2201,7 +2234,7 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 			return (RLCompletionResult){ .type = RLCompletionResultTypeError,
 				                         .data = { .error = exec_result.data.error } };
 		} else if(exec_result.type == ShellExecuteSyncCaptureResultTypeCrash) {
-			// TODO: use the crash condition and pass it on as error
+			// TODO(Totto): use the crash condition and pass it on as error
 			return (RLCompletionResult){ .type = RLCompletionResultTypeError,
 				                         .data = { .error = TSTR_LIT("The process crashed") } };
 
@@ -2326,7 +2359,9 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 	    shell_completion_function_rl_impl(g_rl_internal_completion_state, text, start, end);
 
 	if(array.type == RLCompletionResultTypeError) {
-		// TODO: print the error somehow
+		shell_global_debug(g_rl_internal_completion_state,
+		                   "[DEBUG]: error in the completer process: " TSTR_FMT "\n",
+		                   TSTR_FMT_ARGS(array.data.error));
 		tstr_free(&(array.data.error));
 
 		rl_completion_suppress_append = 1;
