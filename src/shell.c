@@ -104,7 +104,7 @@ __attribute__((format(printf, 1, 2))) static void shell_print_error(const char* 
 	va_end(args);
 }
 
-__attribute__((format(printf, 2, 3))) MAYBE_UNUSED static void
+MAYBE_UNUSED __attribute__((format(printf, 2, 3))) static void
 shell_global_debug(ShellState* state, const char* message, ...) {
 
 	if(state->settings.debug) {
