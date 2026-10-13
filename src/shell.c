@@ -2052,7 +2052,7 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 				                             .error = TSTR_LIT("OOM error in internal parsing") } };
 		}
 
-		ShellArgument argv3 = { .parsed = tstr_null(), .original = TSTR_TSV("") };
+		ShellArgument argv3 = { .parsed = tstr_from(""), .original = TSTR_TSV("") };
 		if(TVEC_LENGTH(ShellArgument, completion.args) > 0) {
 			const ShellArgument* const arg1 = TVEC_GET_AT(ShellArgument, &(completion.args), 0);
 			ASSERT(arg1 != NULL);
