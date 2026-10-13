@@ -1812,27 +1812,67 @@ completion_result_array_to_rl_completion_array(TrieResultEntryArray* array,
 			                         .data = { .error = TSTR_LIT("OOM in internal allocation") } };
 	}
 
+	bool correct_script = false;
+
+	tstr common_prefix = find_common_prefix(array);
+
 	{
 
-		tstr common_prefix = find_common_prefix(array);
 		if(tstr_is_null(&common_prefix)) {
+			common_prefix = tstr_from_view(current_prefix);
+		} else if(tstr_len(&common_prefix) < current_prefix.len) {
+			correct_script = true;
+
+			// if the completion script returns some "wrong" data, correct it
+			// wrong means e.g. i specify "re" and it returns "read", "return" and "root", so the
+			// calculated prefix is smaller then the result
+
+			tstr_free(&common_prefix);
 			common_prefix = tstr_from_view(current_prefix);
 		}
 
 		raw_array[0] = strdup(tstr_cstr(&common_prefix));
-		tstr_free(&common_prefix);
+
+		if(!correct_script) {
+			tstr_free(&common_prefix);
+		}
 	}
-	raw_array[array_length + 1] = NULL;
 
-	for(size_t i = 0; i < array_length; ++i) {
+	if(correct_script) {
+		size_t current_idx = 0;
+		// we have some invalid entires, filter them out
+		for(size_t i = 0; i < array_length; ++i) {
 
-		const TrieResultEntry* const arg = TVEC_GET_AT(TrieResultEntry, array, i);
-		ASSERT(arg != NULL);
+			const TrieResultEntry* const arg = TVEC_GET_AT(TrieResultEntry, array, i);
+			ASSERT(arg != NULL);
 
-		tstr name = tstr_from_view(arg->name);
+			if(!tstr_view_starts_with(arg->name, tstr_cstr(&common_prefix))) {
+				continue;
+			}
+			tstr name = tstr_from_view(arg->name);
 
-		raw_array[i + 1] = strdup(tstr_cstr(&name));
-		tstr_free(&name);
+			raw_array[current_idx + 1] = strdup(tstr_cstr(&name));
+			tstr_free(&name);
+
+			++current_idx;
+		}
+
+		raw_array[current_idx + 1] = NULL;
+		tstr_free(&common_prefix);
+	} else {
+
+		raw_array[array_length + 1] = NULL;
+
+		for(size_t i = 0; i < array_length; ++i) {
+
+			const TrieResultEntry* const arg = TVEC_GET_AT(TrieResultEntry, array, i);
+			ASSERT(arg != NULL);
+
+			tstr name = tstr_from_view(arg->name);
+
+			raw_array[i + 1] = strdup(tstr_cstr(&name));
+			tstr_free(&name);
+		}
 	}
 
 	TVEC_FREE(TrieResultEntry, array);
