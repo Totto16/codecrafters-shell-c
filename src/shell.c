@@ -2015,12 +2015,7 @@ static void free_resolved_completion_line(ShellResolvedCompletionLine* resolved)
 }
 
 NODISCARD static RLCompletionResult
-rl_complete_completion_impl(ShellState* state, ShellResolvedCompletionLine completion,
-                            tstr_view prefix) {
-
-	// TODO
-	UNUSED(prefix);
-	UNUSED(state);
+rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view prefix) {
 
 	const tstr* path = &(completion.completion->script);
 	const tstr* invoke_name = &(completion.completion->script);
@@ -2034,7 +2029,6 @@ rl_complete_completion_impl(ShellState* state, ShellResolvedCompletionLine compl
 	if(exec_result.type != ShellExecuteSyncCaptureResultTypeOk) {
 
 		if(exec_result.type == ShellExecuteSyncCaptureResultTypeError) {
-
 			return (RLCompletionResult){ .type = RLCompletionResultTypeError,
 				                         .data = { .error = exec_result.data.error } };
 		} else if(exec_result.type == ShellExecuteSyncCaptureResultTypeCrash) {
@@ -2063,6 +2057,7 @@ rl_complete_completion_impl(ShellState* state, ShellResolvedCompletionLine compl
 		if(offset >= data.len) {
 			// we are at the end, add the entire thing
 			data_to_add = data;
+			data = (tstr_view){ .data = NULL, .len = 0 };
 		} else {
 			// check if we are at a newline
 			const char character = data.data[offset];
@@ -2073,13 +2068,13 @@ rl_complete_completion_impl(ShellState* state, ShellResolvedCompletionLine compl
 				if(offset == 0) {
 					// ignore empty lines
 					offset = 0;
-					data = tstr_sub(data, 0, data.len - 1);
+					data = tstr_sub_until_end(data, 1);
 					continue;
 				}
 
-				data_to_add = (tstr_view){ .data = data.data, .len = (offset - 1) };
+				data_to_add = (tstr_view){ .data = data.data, .len = offset };
+				data = tstr_sub_until_end(data, offset);
 				offset = 0;
-				data = tstr_sub(data, 0, data.len - offset);
 			} else {
 				offset++;
 				continue;
@@ -2142,11 +2137,11 @@ shell_completion_function_rl_impl(ShellState* state, const char* text, int start
 	// completer script, get the completion from that, otherwise we just complete filenames
 	ShellCompletionLineResult completion = shell_resolve_completion_line_impl(state, before);
 
-	if(!completion.is_ok) {
-		return rl_complete_filename_impl(state, string);
+	if(completion.is_ok) {
+		return rl_complete_completion_impl(completion.data.resolved, string);
 	}
 
-	return rl_complete_completion_impl(state, completion.data.resolved, string);
+	return rl_complete_filename_impl(state, string);
 }
 
 static ShellState* g_rl_internal_completion_state = NULL;

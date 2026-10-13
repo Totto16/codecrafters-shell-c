@@ -5,6 +5,7 @@
 
 #include <tvec/tvec.h>
 
+#include <errno.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -311,7 +312,8 @@ NORETURN static void invoke_executable_child_impl(const tstr* path, const tstr* 
 	free_execv_args(args);
 	UNUSED(exec_res);
 
-	exe_report_error(ExitCodeImplementationError, "Execv returned\n");
+	exe_report_error(ExitCodeImplementationError, "Couldn't launch executable %d: %s\n", errno,
+	                 strerror(errno));
 }
 
 static ShellExecuteAsyncResult invoke_executable_impl(const tstr* path,
@@ -439,7 +441,7 @@ NODISCARD ShellExecuteSyncCaptureResult invoke_executable_synchronous_capture(
 	}
 
 	const ShellPipeState pipe_state = { .array = &pipe_info_array,
-		                                .close = { .start = 0, .end = 1 },
+		                                .close = { .start = 0, .end = 2 },
 		                                .settings = {
 		                                    .stdin = { .is_pipe = true, .idx = 0 },
 		                                    .stdout = { .is_pipe = true, .idx = 1 },
