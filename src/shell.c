@@ -2234,9 +2234,31 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 			return (RLCompletionResult){ .type = RLCompletionResultTypeError,
 				                         .data = { .error = exec_result.data.error } };
 		} else if(exec_result.type == ShellExecuteSyncCaptureResultTypeCrash) {
-			// TODO(Totto): use the crash condition and pass it on as error
+
+			tstr error = tstr_from("");
+
+			{
+
+				ShellExecuteSyncCaptureResultCrash crash = exec_result.data.crash;
+
+				if(crash.normal_exit) {
+					TStrResult str_res =
+					    tstr_fmt(&error, "The process exited with exit code %u", crash.data.exit);
+					if(str_res != TStrResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/
+						error = TSTR_LIT("The process exited with an unknown exit code");
+					}
+				} else {
+					TStrResult str_res =
+					    tstr_fmt(&error, "The process exited with signal <%u>: %s\n",
+					             crash.data.signal, strsignal(crash.data.signal));
+					if(str_res != TStrResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/
+						error = TSTR_LIT("The process exited with signal: <unknown signal>");
+					}
+				}
+			}
+
 			return (RLCompletionResult){ .type = RLCompletionResultTypeError,
-				                         .data = { .error = TSTR_LIT("The process crashed") } };
+				                         .data = { .error = error } };
 
 		} else {
 			return (RLCompletionResult){ .type = RLCompletionResultTypeError,
