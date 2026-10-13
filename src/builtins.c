@@ -863,8 +863,19 @@ static const BuiltinCommand builtin_function_history = {
 	.help = history_help,
 };
 
+typedef enum : uint8_t {
+	CompleteTypePrint = 0,
+} CompleteType;
+
 typedef struct {
-	int todo;
+	tstr name;
+} CompletePrint;
+
+typedef struct {
+	CompleteType type;
+	union {
+		CompletePrint print;
+	} data;
 } CompleteData;
 
 TRTTI_DECLARE_TYPE_AS_SUPPORTED(CompleteData)
@@ -876,8 +887,38 @@ static ShellParseArgumentsResult complete_parse_arguments(const ShellArguments* 
 	// TODO(Totto): support options to complete
 
 	if(args->length == 0) {
-		CompleteData complete_data = { .todo = 42 };
-		RETURN_ARGUMENT(CompleteData, complete_data);
+		return (ShellParseArgumentsResult){
+			.is_ok = false,
+			.data = { .error = TSTR_LIT("complete: expected at least one argument") }
+		};
+	}
+
+	if(args->length == 0) {
+		return (ShellParseArgumentsResult){
+			.is_ok = false, .data = { .error = TSTR_LIT("complete: not supported yet") }
+		};
+	}
+
+	if(args->length == 2) {
+
+		const ShellArgument* const arg1 = TVEC_GET_AT(ShellArgument, args, 0);
+		ASSERT(arg1 != NULL);
+
+		const ShellArgument* const arg2 = TVEC_GET_AT(ShellArgument, args, 1);
+		ASSERT(arg2 != NULL);
+
+		if(tstr_eq_cstr(&(arg1->parsed), "-p")) {
+			tstr name = tstr_dup(&(arg2->parsed));
+
+			CompleteData complete_data = { .type = CompleteTypePrint,
+				                           .data = { .print = { .name = name } } };
+			RETURN_ARGUMENT(CompleteData, complete_data);
+		} else {
+
+			return (ShellParseArgumentsResult){
+				.is_ok = false, .data = { .error = TSTR_LIT("complete: invalid arguments") }
+			};
+		}
 	}
 
 	return (ShellParseArgumentsResult){
@@ -886,6 +927,19 @@ static ShellParseArgumentsResult complete_parse_arguments(const ShellArguments* 
 }
 
 static void complete_free_arguments(shell_dynamic_args args) {
+
+	CompleteData* complete_data = TRTTI_ANNOTATED_PTR_CAST(CompleteData, args);
+
+	switch(complete_data->type) {
+		case CompleteTypePrint: {
+			tstr_free(&(complete_data->data.print.name));
+			break;
+		}
+		default: {
+			break;
+		}
+	}
+
 	TRTTI_DESTROY(CompleteData, args);
 }
 
@@ -894,9 +948,21 @@ static ExitCode complete_invoke(shell_dynamic_args args, const ShellHandle shell
 	UNUSED(shell);
 	CompleteData* complete_data = TRTTI_ANNOTATED_PTR_CAST(CompleteData, args);
 
-	// TODO
-	UNUSED(complete_data);
-	RETURN_IMPL_ERROR("complete", "TODO");
+	switch(complete_data->type) {
+		case CompleteTypePrint: {
+
+			int res = SHELL_FPINTF(stdout, "complete: " TSTR_FMT ": no completion specification\n",
+			                       TSTR_FMT_ARGS(complete_data->data.print.name));
+			if(res < 0) {
+				RETURN_IO_ERROR("complete");
+			}
+
+			return ExitCodeGenericError;
+		}
+		default: {
+			RETURN_IMPL_ERROR("complete", "Invalid complete type");
+		}
+	}
 }
 
 static tstr_static complete_help(void) {
