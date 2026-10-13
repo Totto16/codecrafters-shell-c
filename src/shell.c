@@ -2057,9 +2057,9 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 			const ShellArgument* const arg1 = TVEC_GET_AT(ShellArgument, &(completion.args), 0);
 			ASSERT(arg1 != NULL);
 			argv3 = shell_dup_shell_argument(arg1);
-		} /* else if(!tstr_is_null(&(completion.arg0.parsed))) {
+		} else if(prefix.len != 0 && !tstr_is_null(&(completion.arg0.parsed))) {
 			argv3 = shell_dup_shell_argument(&completion.arg0);
-		} */
+		}
 
 		res = TVEC_PUSH(ShellArgument, &arguments, argv3);
 
