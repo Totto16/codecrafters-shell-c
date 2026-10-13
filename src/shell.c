@@ -2069,6 +2069,10 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 			}
 		}
 
+		// fprintf(stderr, "TODO: argv1: " TSTR_FMT "\n", TSTR_FMT_ARGS(argv1.parsed));
+		// fprintf(stderr, "TODO: argv2: " TSTR_FMT "\n", TSTR_FMT_ARGS(argv2.parsed));
+		// fprintf(stderr, "TODO: argv3: " TSTR_FMT "\n", TSTR_FMT_ARGS(argv3.parsed));
+
 		res = TVEC_PUSH(ShellArgument, &arguments, argv3);
 
 		if(res != TvecResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/
