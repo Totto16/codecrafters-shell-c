@@ -2091,7 +2091,7 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 				                         .data = {
 				                             .error = TSTR_LIT("OOM error in internal parsing") } };
 		}
-		res = TVEC_PUSH(ShellEnv, &envs, env1);
+		res = TVEC_PUSH(ShellEnv, &envs, env2);
 
 		if(res != TvecResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/
 			return (RLCompletionResult){ .type = RLCompletionResultTypeError,
