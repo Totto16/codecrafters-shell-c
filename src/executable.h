@@ -94,5 +94,19 @@ typedef struct {
 	} data;
 } ShellExecuteSyncCaptureResult;
 
-NODISCARD ShellExecuteSyncCaptureResult invoke_executable_synchronous_capture(
-    const tstr* path, const tstr* invoke_name, const ShellArguments* arguments);
+typedef struct {
+	tstr name;
+	tstr value;
+} ShellEnv;
+
+TVEC_DEFINE_VEC_TYPE(ShellEnv)
+
+typedef TVEC_TYPENAME(ShellEnv) ShellEnvs;
+
+void free_shell_env(ShellEnv* arg);
+
+void free_shell_envs(ShellEnvs* args);
+
+NODISCARD ShellExecuteSyncCaptureResult
+invoke_executable_synchronous_capture(const tstr* path, const tstr* invoke_name,
+                                      const ShellArguments* arguments, const ShellEnvs* envs);

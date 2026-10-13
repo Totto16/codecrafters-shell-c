@@ -2023,7 +2023,8 @@ NODISCARD static ShellArgument shell_dup_shell_argument(const ShellArgument* arg
 }
 
 NODISCARD static RLCompletionResult
-rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view prefix) {
+rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view prefix,
+                            tstr_view all_text, size_t end) {
 
 	const tstr* path = &(completion.completion->script);
 	const tstr* invoke_name = &(completion.completion->script);
@@ -2067,11 +2068,44 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 		}
 	}
 
+	ShellEnvs envs = TVEC_EMPTY(ShellEnv);
+
+	{
+
+		ShellEnv env1 = { .name = TSTR_LIT("COMP_LINE"), .value = tstr_from_view(all_text) };
+
+		TvecResult res = TVEC_PUSH(ShellEnv, &envs, env1);
+
+		if(res != TvecResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/
+			return (RLCompletionResult){ .type = RLCompletionResultTypeError,
+				                         .data = {
+				                             .error = TSTR_LIT("OOM error in internal parsing") } };
+		}
+
+		ShellEnv env2 = { .name = TSTR_LIT("COMP_POINT"), .value = tstr_from("") };
+
+		TStrResult str_res = tstr_fmt(&env2.value, "%zu", end);
+
+		if(str_res != TStrResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/
+			return (RLCompletionResult){ .type = RLCompletionResultTypeError,
+				                         .data = {
+				                             .error = TSTR_LIT("OOM error in internal parsing") } };
+		}
+		res = TVEC_PUSH(ShellEnv, &envs, env1);
+
+		if(res != TvecResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/
+			return (RLCompletionResult){ .type = RLCompletionResultTypeError,
+				                         .data = {
+				                             .error = TSTR_LIT("OOM error in internal parsing") } };
+		}
+	}
+
 	ShellExecuteSyncCaptureResult exec_result =
-	    invoke_executable_synchronous_capture(path, invoke_name, &arguments);
+	    invoke_executable_synchronous_capture(path, invoke_name, &arguments, &envs);
 
 	free_resolved_completion_line(&completion);
 	free_shell_arguments(&arguments);
+	free_shell_envs(&envs);
 
 	if(exec_result.type != ShellExecuteSyncCaptureResultTypeOk) {
 
@@ -2179,6 +2213,7 @@ shell_completion_function_rl_impl(ShellState* state, const char* text, int start
 	}
 
 	tstr_view before = (tstr_view){ .data = rl_line_buffer, .len = (size_t)(start - 1) };
+	tstr_view everything = (tstr_view){ .data = rl_line_buffer, .len = (size_t)end };
 
 	// we are in argument n of a command, we figure out which command, and if that command
 	// has a completer script, get the completion from that, otherwise we just complete
@@ -2186,7 +2221,8 @@ shell_completion_function_rl_impl(ShellState* state, const char* text, int start
 	ShellCompletionLineResult completion = shell_resolve_completion_line_impl(state, before);
 
 	if(completion.is_ok) {
-		return rl_complete_completion_impl(completion.data.resolved, string);
+		return rl_complete_completion_impl(completion.data.resolved, string, everything,
+		                                   (size_t)end);
 	}
 
 	return rl_complete_filename_impl(state, string);

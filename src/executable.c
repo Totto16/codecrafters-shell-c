@@ -159,7 +159,8 @@ report_error_end:
 NORETURN static void invoke_executable_child_impl(const tstr* path, const tstr* const invoke_name,
                                                   const ShellArguments* arguments,
                                                   const ShellRedirectSettings* settings,
-                                                  const ShellPipeState* pipe_state) {
+                                                  const ShellPipeState* pipe_state,
+                                                  const ShellEnvs* envs) {
 
 	bool stdout_redirected = false;
 
@@ -309,6 +310,20 @@ NORETURN static void invoke_executable_child_impl(const tstr* path, const tstr* 
 		args[i + 1] = tstr_take(&arg_dup);
 	}
 
+	if(envs) {
+
+		for(size_t i = 0; i < TVEC_LENGTH(ShellEnv, *envs); ++i) {
+
+			const ShellEnv* const arg = TVEC_GET_AT(ShellEnv, envs, i);
+			ASSERT(arg != NULL);
+
+			int res = setenv(tstr_cstr(&arg->name), tstr_cstr(&arg->value), 1);
+			if(res < 0) {
+				exe_report_error(ExitCodeImplementationError, "Couldn't add env variables\n");
+			}
+		}
+	}
+
 	int exec_res = execv(tstr_cstr(path), args);
 
 	// Only reached if exec fails
@@ -319,11 +334,10 @@ NORETURN static void invoke_executable_child_impl(const tstr* path, const tstr* 
 	                 strerror(errno));
 }
 
-static ShellExecuteAsyncResult invoke_executable_impl(const tstr* path,
-                                                      const tstr* const invoke_name,
-                                                      const ShellArguments* arguments,
-                                                      const ShellRedirectSettings* settings,
-                                                      const ShellPipeState* pipe_state) {
+static ShellExecuteAsyncResult
+invoke_executable_impl(const tstr* path, const tstr* const invoke_name,
+                       const ShellArguments* arguments, const ShellRedirectSettings* settings,
+                       const ShellPipeState* pipe_state, const ShellEnvs* envs) {
 	pid_t pid = fork();
 
 	if(pid == -1) {
@@ -334,7 +348,7 @@ static ShellExecuteAsyncResult invoke_executable_impl(const tstr* path,
 	if(pid == 0) {
 		// Child process: execute the program
 		RETURNS_VOID invoke_executable_child_impl(path, invoke_name, arguments, settings,
-		                                          pipe_state);
+		                                          pipe_state, envs);
 		UNREACHABLE();
 	}
 
@@ -358,7 +372,7 @@ ShellExecuteSyncResult invoke_executable_synchronous(const tstr* path,
 		                                } };
 
 	ShellExecuteAsyncResult result =
-	    invoke_executable_impl(path, invoke_name, arguments, settings, &pipe_state);
+	    invoke_executable_impl(path, invoke_name, arguments, settings, &pipe_state, NULL);
 
 	if(!result.is_ok) {
 		return (ShellExecuteSyncResult){ .type = ShellExecuteSyncResultTypeError,
@@ -393,13 +407,14 @@ NODISCARD ShellExecuteAsyncResult invoke_executable_async(const tstr* path, cons
                                                           const ShellRedirectSettings* settings,
                                                           const ShellPipeState* pipe_state) {
 
-	return invoke_executable_impl(path, invoke_name, arguments, settings, pipe_state);
+	return invoke_executable_impl(path, invoke_name, arguments, settings, pipe_state, NULL);
 }
 
 #define READ_BUF_SIZE 1024
 
-NODISCARD ShellExecuteSyncCaptureResult invoke_executable_synchronous_capture(
-    const tstr* path, const tstr* invoke_name, const ShellArguments* arguments) {
+NODISCARD ShellExecuteSyncCaptureResult
+invoke_executable_synchronous_capture(const tstr* path, const tstr* invoke_name,
+                                      const ShellArguments* arguments, const ShellEnvs* envs) {
 
 	ShellPipeInfoArray pipe_info_array = TVEC_EMPTY(ShellPipeInfo);
 
@@ -455,7 +470,7 @@ NODISCARD ShellExecuteSyncCaptureResult invoke_executable_synchronous_capture(
 		                                           .location = TSTR_LIT("/dev/null") } };
 
 	ShellExecuteAsyncResult result =
-	    invoke_executable_impl(path, invoke_name, arguments, &settings, &pipe_state);
+	    invoke_executable_impl(path, invoke_name, arguments, &settings, &pipe_state, envs);
 
 	tstr_free(&settings.stderr.location);
 	TVEC_FREE(ShellPipeInfo, &pipe_info_array);
@@ -596,3 +611,23 @@ out_of_loop:
 	return (ShellExecuteSyncCaptureResult){ .type = ShellExecuteSyncCaptureResultTypeCrash,
 		                                    .data = { .crash = exit_result } };
 }
+
+void free_shell_env(ShellEnv* arg) {
+	tstr_free(&(arg->name));
+	tstr_free(&(arg->value));
+}
+
+void free_shell_envs(ShellEnvs* args) {
+
+	for(size_t i = 0; i < TVEC_LENGTH(ShellEnv, *args); ++i) {
+
+		ShellEnv* arg = TVEC_GET_AT_MUT(ShellEnv, args, i);
+		ASSERT(arg != NULL);
+
+		free_shell_env(arg);
+	}
+
+	TVEC_FREE(ShellEnv, args);
+}
+
+TVEC_IMPLEMENT_VEC_TYPE(ShellEnv)
