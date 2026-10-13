@@ -2241,20 +2241,29 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 
 				ShellExecuteSyncCaptureResultCrash crash = exec_result.data.crash;
 
-				if(crash.normal_exit) {
-					TStrResult str_res =
-					    tstr_fmt(&error, "The process exited with exit code %u", crash.data.exit);
+				if(crash.exit.normal_exit) {
+					TStrResult str_res = tstr_fmt(&error, "The process exited with exit code %u",
+					                              crash.exit.data.exit);
 					if(str_res != TStrResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/
 						error = TSTR_LIT("The process exited with an unknown exit code");
 					}
 				} else {
 					TStrResult str_res =
-					    tstr_fmt(&error, "The process exited with signal <%u>: %s\n",
-					             crash.data.signal, strsignal(crash.data.signal));
+					    tstr_fmt(&error, "The process exited with signal <%u>: %s",
+					             crash.exit.data.signal, strsignal(crash.exit.data.signal));
 					if(str_res != TStrResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/
 						error = TSTR_LIT("The process exited with signal: <unknown signal>");
 					}
 				}
+
+				TStrResult str_res = tstr_fmt(&error, "\n\nstderr:\n" TSTR_FMT "\n",
+				                              TSTR_FMT_ARGS(crash.streams.stderr));
+				if(str_res != TStrResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/
+					                          // just ignore here
+				}
+
+				tstr_free(&crash.streams.stdout);
+				tstr_free(&crash.streams.stderr);
 			}
 
 			return (RLCompletionResult){ .type = RLCompletionResultTypeError,
@@ -2270,21 +2279,21 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 
 	TrieResultEntryArray array = TVEC_EMPTY(TrieResultEntry);
 
-	tstr_view data = tstr_as_view(&(ok.data));
+	tstr_view stdout_data = tstr_as_view(&(ok.streams.stdout));
 
 	size_t offset = 0;
 
-	while(data.len != 0) {
+	while(stdout_data.len != 0) {
 
 		tstr_view data_to_add = TSTR_TSV("");
 
-		if(offset >= data.len) {
+		if(offset >= stdout_data.len) {
 			// we are at the end, add the entire thing
-			data_to_add = data;
-			data = TSTR_TSV("");
+			data_to_add = stdout_data;
+			stdout_data = TSTR_TSV("");
 		} else {
 			// check if we are at a newline
-			const char character = data.data[offset];
+			const char character = stdout_data.data[offset];
 
 			if(character == '\n') {
 				// if we are handle this data
@@ -2292,12 +2301,12 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 				if(offset == 0) {
 					// ignore empty lines
 					offset = 0;
-					data = tstr_sub_until_end(data, 1);
+					stdout_data = tstr_sub_until_end(stdout_data, 1);
 					continue;
 				}
 
-				data_to_add = (tstr_view){ .data = data.data, .len = offset };
-				data = tstr_sub_until_end(data, offset);
+				data_to_add = (tstr_view){ .data = stdout_data.data, .len = offset };
+				stdout_data = tstr_sub_until_end(stdout_data, offset);
 				offset = 0;
 			} else {
 				offset++;
@@ -2317,7 +2326,8 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 	}
 
 	RLCompletionResult result = completion_result_array_to_rl_completion_array(&array, prefix);
-	tstr_free(&(ok.data));
+	tstr_free(&(ok.streams.stdout));
+	tstr_free(&(ok.streams.stderr));
 
 	return result;
 }

@@ -506,12 +506,15 @@ invoke_executable_synchronous_capture(const tstr* path, const tstr* invoke_name,
 
 	// read data until the process exited
 
+#define CAPTURE_AMOUNT 2
+
 	bool exited = false;
-	bool read_finished = false;
-	ShellExecuteSyncCaptureResultCrash exit_result = { .normal_exit = true, .data = { .exit = 0 } };
-	tstr buf = tstr_from("");
+	bool read_finished[CAPTURE_AMOUNT] = { false, false };
+	ShellExecuteSyncCaptureResultExit exit_result = { .normal_exit = true, .data = { .exit = 0 } };
+	tstr bufs[CAPTURE_AMOUNT] = { tstr_from(""), tstr_from("") };
 	char read_buf[READ_BUF_SIZE];
-	const int read_fd = stdout_info.fds[PIPE_READ_END];
+	const int read_fds[CAPTURE_AMOUNT] = { stdout_info.fds[PIPE_READ_END],
+		                                   stderr_info.fds[PIPE_READ_END] };
 
 	while(true) {
 
@@ -522,7 +525,7 @@ invoke_executable_synchronous_capture(const tstr* path, const tstr* invoke_name,
 			};
 		}
 
-		const int options = read_finished ? 0 : WNOHANG;
+		const int options = (read_finished[0] && read_finished[1]) ? 0 : WNOHANG;
 
 		int status = 0;
 		int res = waitpid(handle.child_pid, &status, options);
@@ -542,21 +545,21 @@ invoke_executable_synchronous_capture(const tstr* path, const tstr* invoke_name,
 
 		if(WIFEXITED(status)) {
 			uint8_t exit_status = (uint8_t)WEXITSTATUS(status);
-			exit_result = (ShellExecuteSyncCaptureResultCrash){ .normal_exit = true,
-				                                                .data = { .exit = exit_status } };
+			exit_result = (ShellExecuteSyncCaptureResultExit){ .normal_exit = true,
+				                                               .data = { .exit = exit_status } };
 		} else if(WIFSIGNALED(status)) {
 			uint8_t signal_number = WTERMSIG(status);
 			exit_result =
-			    (ShellExecuteSyncCaptureResultCrash){ .normal_exit = false,
-				                                      .data = { .signal = signal_number } };
+			    (ShellExecuteSyncCaptureResultExit){ .normal_exit = false,
+				                                     .data = { .signal = signal_number } };
 		}
 
-		if(read_finished) {
+		if(read_finished[0] && read_finished[1]) {
 			break;
 		}
 
 	read_portion:
-		if(read_finished) {
+		if(read_finished[0] && read_finished[1]) {
 			return (ShellExecuteSyncCaptureResult){
 				.type = ShellExecuteSyncCaptureResultTypeError,
 				.data = { .error = TSTR_LIT("invalid state in state machine") }
@@ -567,33 +570,44 @@ invoke_executable_synchronous_capture(const tstr* path, const tstr* invoke_name,
 			// we read a chunk, if we already have exited, until we have read all, otherwise we just
 			// return to the waitpid call, so that that is serviced
 
-			ssize_t read_res = read(read_fd, read_buf, READ_BUF_SIZE);
+			for(size_t i = 0; i < CAPTURE_AMOUNT; ++i) {
 
-			if(read_res == 0) {
-				read_finished = true;
-				if(exited) {
-					goto out_of_loop;
+				if(read_finished[i]) {
+					continue;
 				}
 
-				break;
+				ssize_t read_res = read(read_fds[i], read_buf, READ_BUF_SIZE);
+
+				if(read_res == 0) {
+					read_finished[i] = true;
+					continue;
+				}
+
+				if(read_res < 0) {
+					return (ShellExecuteSyncCaptureResult){
+						.type = ShellExecuteSyncCaptureResultTypeError,
+						.data = { .error = TSTR_LIT("a read error occurred") }
+					};
+				}
+
+				TStrResult cat_res = tstr_cat_len(&bufs[i], read_buf, (size_t)read_res);
+
+				if(cat_res != TStrResultOk) {
+					tstr_free(&bufs[0]);
+					tstr_free(&bufs[1]);
+
+					return (ShellExecuteSyncCaptureResult){
+						.type = ShellExecuteSyncCaptureResultTypeError,
+						.data = { .error = TSTR_LIT("OOM in string concatenation") }
+					};
+				}
 			}
 
-			if(read_res < 0) {
-				return (ShellExecuteSyncCaptureResult){
-					.type = ShellExecuteSyncCaptureResultTypeError,
-					.data = { .error = TSTR_LIT("a read error occurred") }
-				};
-			}
+			if(exited) {
 
-			TStrResult cat_res = tstr_cat_len(&buf, read_buf, (size_t)read_res);
-
-			if(cat_res != TStrResultOk) {
-				tstr_free(&buf);
-
-				return (ShellExecuteSyncCaptureResult){
-					.type = ShellExecuteSyncCaptureResultTypeError,
-					.data = { .error = TSTR_LIT("OOM in string concatenation") }
-				};
+				if(read_finished[0] && read_finished[1]) {
+					goto out_of_loop;
+				}
 			}
 
 		} while(exited);
@@ -601,9 +615,10 @@ invoke_executable_synchronous_capture(const tstr* path, const tstr* invoke_name,
 
 out_of_loop:
 
-	IGNORE_RESULT close(read_fd);
+	IGNORE_RESULT close(read_fds[0]);
+	IGNORE_RESULT close(read_fds[1]);
 
-	if(!read_finished || !exited) {
+	if(!read_finished[0] || !read_finished[1] || !exited) {
 		return (ShellExecuteSyncCaptureResult){ .type = ShellExecuteSyncCaptureResultTypeError,
 			                                    .data = { .error = TSTR_LIT(
 			                                                  "invalid state in state machine") } };
@@ -612,15 +627,18 @@ out_of_loop:
 	if(exit_result.normal_exit && exit_result.data.exit == 0) {
 		// we exited normally
 
-		return (ShellExecuteSyncCaptureResult){ .type = ShellExecuteSyncCaptureResultTypeOk,
-			                                    .data = { .ok = { .data = buf } } };
+		return (ShellExecuteSyncCaptureResult){
+			.type = ShellExecuteSyncCaptureResultTypeOk,
+			.data = { .ok = { .streams = { .stdout = bufs[0], .stderr = bufs[1] } } }
+		};
 	}
 	// we had an error
 
-	tstr_free(&buf);
-
-	return (ShellExecuteSyncCaptureResult){ .type = ShellExecuteSyncCaptureResultTypeCrash,
-		                                    .data = { .crash = exit_result } };
+	return (ShellExecuteSyncCaptureResult){
+		.type = ShellExecuteSyncCaptureResultTypeCrash,
+		.data = { .crash = { .streams = { .stdout = bufs[0], .stderr = bufs[1] },
+		                     .exit = exit_result } }
+	};
 }
 
 void free_shell_env(ShellEnv* arg) {

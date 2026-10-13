@@ -79,12 +79,21 @@ typedef struct {
 		ShellSignal signal;
 		ExitCode exit;
 	} data;
+} ShellExecuteSyncCaptureResultExit;
+
+typedef struct {
+	tstr stdout;
+	tstr stderr;
+} ShellExecuteSyncCaptureResultStreams;
+
+typedef struct {
+	ShellExecuteSyncCaptureResultExit exit;
+	ShellExecuteSyncCaptureResultStreams streams;
 } ShellExecuteSyncCaptureResultCrash;
 
 typedef struct {
-	tstr data;
+	ShellExecuteSyncCaptureResultStreams streams;
 } ShellExecuteSyncCaptureResultOk;
-
 typedef struct {
 	ShellExecuteSyncCaptureResultType type;
 	union {
