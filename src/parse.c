@@ -96,6 +96,25 @@ typedef struct {
 \
 	} while(false)
 
+typedef struct {
+	bool has_value;
+	tstr_view value_view;
+} ShellResolvedValue;
+
+static ShellResolvedValue shell_get_variable_value(const ShellHandle shell, tstr_view value) {
+	tstr key = tstr_from_view(value);
+	const ShellVariable* variable = shell.function.get_variable(shell.context, &key);
+
+	tstr_free(&key);
+
+	if(variable == NULL) {
+		return (ShellResolvedValue){ .has_value = false, .value_view = TSTR_EMPTY_VIEW };
+	}
+
+	return (ShellResolvedValue){ .has_value = true,
+		                         .value_view = tstr_as_view(&(variable->value)) };
+}
+
 static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle shell) {
 	ShellArguments arguments = TVEC_EMPTY(ShellArgument);
 
@@ -336,8 +355,19 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 
 								const size_t add_raw_span = i - var_start;
 
-								// TODO
-								tstr_view resolved_variable = variable_name;
+								ShellResolvedValue resolved_result =
+								    shell_get_variable_value(shell, variable_name);
+
+								if(!resolved_result.has_value) {
+
+									return (ParsedPipelineResult){
+										.is_ok = false,
+										.data = { .error = TSTR_LIT("TODO: atm only set variables "
+										                            "are resolved") }
+									};
+								}
+
+								tstr_view resolved_variable = resolved_result.value_view;
 
 								ADD_TO_ACCUMULATOR(resolved_variable, add_raw_span);
 
