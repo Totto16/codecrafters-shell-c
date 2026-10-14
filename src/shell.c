@@ -2644,8 +2644,9 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 	bool is_docker = false;
 
 	// TODO: this tests some flaky codecarfter teets, is it my fault or the one from the script
-	if(tstr_eq_cstr(&completion.arg0.parsed, "docker")) {
-		fprintf(stderr, "DETECTED DOCKER: \n" TSTR_FMT "\n", TSV_FMT_ARGS(all_text));
+	if(tstr_eq_cstr(&completion.arg0.parsed, "docker") || g_is_docker) {
+		fprintf(stderr, "DETECTED DOCKER: '" TSTR_FMT "'\n'\n" TSTR_FMT "'\n",
+		        TSTR_FMT_ARGS(completion.arg0.parsed), TSV_FMT_ARGS(all_text));
 		is_docker = true;
 	}
 
