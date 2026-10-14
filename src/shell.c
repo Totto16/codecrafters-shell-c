@@ -33,9 +33,6 @@
 #include "./trie.h"
 #include "./utils.h"
 
-// TODO: remove
-int g_is_docker = 0;
-
 typedef struct {
 	ExitCode exit_code;
 } CommandState;
@@ -2402,10 +2399,6 @@ completion_result_array_to_rl_completion_array(TrieResultEntryArray* array,
 	if(array_length == 0) {
 		TVEC_FREE(TrieResultEntry, array);
 
-		if(g_is_docker) {
-			fprintf(stderr, "array_length is 0\n");
-		}
-
 		return (RLCompletionResult){ .type = RLCompletionResultTypeEmpty, .data = {} };
 	}
 
@@ -2682,11 +2675,6 @@ NODISCARD static ShellCompletionLineResult shell_resolve_completion_line_impl(Sh
 	ShellCompletionDataResult completion_data_res =
 	    shell_parse_data_for_completion(prefix, shell_handle);
 
-	if(g_is_docker) {
-		fprintf(stderr, "TRYING TO DO DOCKER: completion check: '" TSTR_FMT "' parse.is_ok: %d\t",
-		        TSV_FMT_ARGS(prefix), completion_data_res.is_ok);
-	}
-
 	if(!completion_data_res.is_ok) {
 		tstr_free(&completion_data_res.data.error);
 		return (ShellCompletionLineResult){ .is_ok = false, .data = {} };
@@ -2696,10 +2684,6 @@ NODISCARD static ShellCompletionLineResult shell_resolve_completion_line_impl(Sh
 
 	const ShellCompletion* completion =
 	    shell_get_completion_impl(&(state->completion_state), &(ok.arg0.parsed));
-
-	if(g_is_docker) {
-		fprintf(stderr, "TRYING TO DO DOCKER: completion ptr %p\t", (const void*)completion);
-	}
 
 	if(completion == NULL) {
 		free_shell_completion_data_ok(&ok);
@@ -2850,16 +2834,6 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 	ShellExecuteSyncCaptureResult exec_result =
 	    invoke_executable_synchronous_capture(path, &invoke_name, &arguments, &envs);
 
-	// TODO: remove, after we debugged this
-	bool is_docker = false;
-
-	// TODO: this tests some flaky codecarfter teets, is it my fault or the one from the script
-	if(tstr_eq_cstr(&completion.arg0.parsed, "docker") || g_is_docker) {
-		fprintf(stderr, "DETECTED DOCKER: '" TSTR_FMT "'\n'\n" TSTR_FMT "'\n",
-		        TSTR_FMT_ARGS(completion.arg0.parsed), TSV_FMT_ARGS(all_text));
-		is_docker = true;
-	}
-
 	free_resolved_completion_line(&completion);
 	free_shell_arguments(&arguments);
 	free_shell_envs(&envs);
@@ -2962,21 +2936,6 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 		}
 	}
 
-	if(is_docker) {
-		fprintf(stderr, "DETECTED DOCKER: \n" TSTR_FMT "\n", TSV_FMT_ARGS(all_text));
-
-		fprintf(stderr, "length: %zu\n", TVEC_LENGTH(TrieResultEntry, array));
-
-		for(size_t i = 0; i < TVEC_LENGTH(TrieResultEntry, array); ++i) {
-
-			const TrieResultEntry* const arg = TVEC_GET_AT(TrieResultEntry, &array, i);
-			ASSERT(arg != NULL);
-
-			fprintf(stderr, "arg: " TSTR_FMT "\n", TSV_FMT_ARGS(arg->name));
-		}
-		fprintf(stderr, "END DOCKER: \n");
-	}
-
 	RLCompletionResult result = completion_result_array_to_rl_completion_array(&array, prefix);
 	tstr_free(&(ok.streams.stdout));
 	tstr_free(&(ok.streams.stderr));
@@ -2999,11 +2958,6 @@ shell_completion_function_rl_impl(ShellState* state, const char* text, int start
 
 		// TODO: if the command starts with "~" "/" or ".", try to complete filenames and not
 		// executables in PATH
-
-		if(g_is_docker) {
-			fprintf(stderr, "TRYING TO DO DOCKER: start == 0, so we try to complete docker and not "
-			                "the argument\t");
-		}
 
 		// if start == 0, we have the first string, we complete commands on that
 
@@ -3034,10 +2988,6 @@ shell_completion_function_rl_impl(ShellState* state, const char* text, int start
 	// filenames
 	ShellCompletionLineResult completion = shell_resolve_completion_line_impl(state, before);
 
-	if(g_is_docker) {
-		fprintf(stderr, "TRYING TO DO DOCKER: completion is possible: %d\t", completion.is_ok);
-	}
-
 	if(completion.is_ok) {
 
 		return rl_complete_completion_impl(completion.data.resolved, string, everything,
@@ -3053,36 +3003,8 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 
 	rl_attempted_completion_over = 1;
 
-	bool is_docker = false;
-
-	if(end >= 6 && rl_line_buffer[0] == 'd' && rl_line_buffer[1] == 'o' &&
-	   rl_line_buffer[2] == 'c' && rl_line_buffer[3] == 'k' && rl_line_buffer[4] == 'e' &&
-	   rl_line_buffer[5] == 'r') {
-		if((end >= 9 && (rl_line_buffer[7] == 'p' && rl_line_buffer[8] == 's')) ||
-		   (end >= 10 &&
-		    (rl_line_buffer[7] == 'x' && rl_line_buffer[8] == 'y' && rl_line_buffer[9] == 'z'))) {
-
-		} else {
-			// TODO
-			is_docker = true;
-		}
-	}
-
-	if(is_docker) {
-		g_is_docker = true;
-		// fprintf(stderr, "TRYING TO DO DOCKER\t");
-	}
-
 	RLCompletionResult array =
 	    shell_completion_function_rl_impl(g_rl_internal_completion_state, text, start, end);
-
-	/* if(is_docker) {
-	    fprintf(stderr, "array.type: %d %s\t", array.type,
-	            array.type == RLCompletionResultTypeError   ? "error"
-	            : array.type == RLCompletionResultTypeEmpty ? "empty"
-	            : array.type == RLCompletionResultTypeOk    ? "ok"
-	                                                        : "<ERRORROR>");
-	} */
 
 	if(array.type == RLCompletionResultTypeError) {
 		shell_global_debug(g_rl_internal_completion_state,
@@ -3101,25 +3023,6 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 	} else if(array.type == RLCompletionResultTypeOk) {
 
 		RLCompletionOk ok = array.data.ok;
-
-		if(is_docker) {
-
-			size_t len = 0;
-			char** ptr = ok.array.raw + 1;
-			while(*ptr != NULL) {
-				++len;
-				ptr++;
-			}
-
-			// TODO: after some debugging, it seems that we get the files in teh cwd instead of the
-			// completer here? why, debug further, we might have chosen to use filenames, as the
-			// script is not executable or something? no idea why we chose the filenames instead of
-			// the completer script??
-
-			fprintf(stderr, "TRYING TO DO DOCKER: array length = %zu\t\n", len);
-
-			fprintf(stderr, "TRYING TO DO DOCKER: array entry0 = %s\t\n", *(ok.array.raw + 1));
-		}
 
 		if(ok.suppress_append) {
 			rl_completion_suppress_append = 1;
