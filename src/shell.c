@@ -3038,6 +3038,12 @@ shell_completion_function_rl_impl(ShellState* state, const char* text, int start
 	tstr_view string = (tstr_view){ .data = text, .len = (size_t)len };
 
 	if(start == 0) {
+
+		if(g_is_docker) {
+			fprintf(stderr, "TRYING TO DO DOCKER: start == 0, so we try to complete docker and not "
+			                "the argument\t");
+		}
+
 		// if start == 0, we have the first string, we complete commands on that
 
 		const Trie* trie = state->completion_state.completion_trie;
@@ -3067,7 +3073,12 @@ shell_completion_function_rl_impl(ShellState* state, const char* text, int start
 	// filenames
 	ShellCompletionLineResult completion = shell_resolve_completion_line_impl(state, before);
 
+	if(g_is_docker) {
+		fprintf(stderr, "TRYING TO DO DOCKER: completion is possible: %d\t", completion.is_ok);
+	}
+
 	if(completion.is_ok) {
+
 		return rl_complete_completion_impl(completion.data.resolved, string, everything,
 		                                   (size_t)end);
 	}
