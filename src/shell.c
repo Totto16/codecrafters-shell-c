@@ -282,8 +282,6 @@ static void free_sub_shell_thread_state(ShellSubShellThreadState* state) {
 }
 
 static void free_shell_job_state(ShellJobState* arg) {
-	// TODO: close this process with kill
-
 	tstr_free(&arg->command);
 
 	switch(arg->sync.type) {
@@ -489,8 +487,8 @@ static bool shell_set_completion_impl(ShellCompletionState* state, tstr name,
 
 static bool shell_remove_completion_impl(ShellCompletionState* state, const tstr* name) {
 
-	// TODO: tmap doesn't allow removal with free, so we just get the entry, if it exists we free it
-	// and then remove it!
+	// TODO(Totto): tmap doesn't allow removal with free, so we just get the entry, if it exists we
+	// free it and then remove it!
 
 	const TMAP_TYPENAME_ENTRY(ShellCompletionHashMap)* map_entry =
 	    TMAP_GET_ENTRY(ShellCompletionHashMap, &(state->storage.map), *name);
@@ -609,7 +607,7 @@ static bool shell_set_variable_impl(ShellVariableStorage* storage, tstr_view arg
 	ShellVariableParseResult parse_result = shell_parse_variable(arg);
 
 	if(!parse_result.is_ok) {
-		// TODO: foward exact error
+		// TODO(Totto): forward exact error
 		tstr_free(&(parse_result.data.error));
 		return false;
 	}
@@ -1914,7 +1912,7 @@ static void shell_populate_state(ShellState* state) {
 		if(shell_global_debug_env == NULL) {
 			state->settings.debug = false;
 		} else {
-			// TODO: parse the value, accept truthy values and set the result
+			// TODO(Totto): parse the value, accept truthy values and set the result
 			state->settings.debug = true;
 		}
 	}
@@ -2003,12 +2001,12 @@ static ShellSetupResult shell_setup_repl(const char* const program_name) {
 
 #if SHELL_USE_EDIT_LIBRARY == 0
 static bool shell_add_to_input_history(const tstr* command) {
-	// TODO: implement
+	// TODO(Totto): implement
 	UNUSED(command);
 	return true;
 }
 static void free_input_history(ShellState* state) {
-	// TODO: implement
+	// TODO(Totto): implement
 	UNUSED(state);
 }
 #elif SHELL_USE_EDIT_LIBRARY == 1
@@ -2022,12 +2020,12 @@ static void free_input_history(ShellState* state) {
 }
 #else
 static bool shell_add_to_input_history(const tstr* command) {
-	// TODO: implement
+	// TODO(Totto): implement
 	UNUSED(command);
 	return true;
 }
 static void free_input_history(ShellState* state) {
-	// TODO: implement
+	// TODO(Totto): implement
 	UNUSED(state);
 }
 #endif
@@ -2361,7 +2359,7 @@ NODISCARD MAYBE_UNUSED static bool shell_populate_completion_state(ShellState* s
 #if SHELL_USE_EDIT_LIBRARY == 0
 NODISCARD static bool shell_setup_completion(ShellState* state) {
 
-	// TODO: implement
+	// TODO(Totto): implement
 	UNUSED(state);
 	return true;
 }
@@ -2956,7 +2954,7 @@ shell_completion_function_rl_impl(ShellState* state, const char* text, int start
 
 	if(start == 0) {
 
-		// TODO: if the command starts with "~" "/" or ".", try to complete filenames and not
+		// TODO(Totto): if the command starts with "~" "/" or ".", try to complete filenames and not
 		// executables in PATH
 
 		// if start == 0, we have the first string, we complete commands on that
@@ -3052,7 +3050,7 @@ NODISCARD static bool shell_setup_completion(ShellState* state) {
 #else
 NODISCARD static bool shell_setup_completion(ShellState* state) {
 
-	// TODO: implement
+	// TODO(Totto): implement
 	UNUSED(state);
 	return true;
 }

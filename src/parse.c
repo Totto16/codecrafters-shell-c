@@ -389,8 +389,9 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 
 								if(!resolved_result.has_value) {
 
-									// TODO: when implementing set -u, here we should throw an
-									// error, as we are resolving unset variables to an empty string
+									// TODO(Totto): when implementing set -u, here we should throw
+									// an error, as we are resolving unset variables to an empty
+									// string
 
 									resolved_variable = TSTR_TSV("");
 								}
@@ -482,7 +483,7 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 
 						if(!resolved_result.has_value) {
 
-							// TODO: when implementing set -u, here we should throw an
+							// TODO(Totto): when implementing set -u, here we should throw an
 							// error, as we are resolving unset variables to an empty string
 
 							// NOTE: in the case of not being in "", we never add to the
@@ -501,7 +502,7 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 									.str = tstr_from("")
 								};
 							} else {
-								// TODO. is this correct?
+								// TODO(Totto): is this correct?
 								//  we just add nothing, acc stays the same, start stays the same,
 								//  so that the raw string is the one with the variable in it, but
 								//  the parsed on has nothing at its space
@@ -1136,7 +1137,7 @@ ShellCompletionDataResult shell_parse_data_for_completion(tstr_view input,
 	const size_t pipeline_length = TVEC_LENGTH(ParsedProgram, parsed_pipeline.programs);
 
 	if(pipeline_length == 0) {
-		// TODO: free the pipline
+		// TODO(Totto): free the pipline
 
 		return (ShellCompletionDataResult){ .is_ok = false,
 			                                .data = { .error = TSTR_LIT("Empty command line") } };

@@ -89,9 +89,6 @@ PathDirectoriesResult get_path_directories(tstr_view path_env) {
 
 static ShellExecutableResult get_executable_path_by_name(tstr_view name) {
 
-	// TODO: get from path if its a name, if its starts with / . or ~ resolve it to a path and check
-	// if thats an executable
-
 	const char* const path_env = getenv("PATH");
 
 	if(path_env == NULL) {

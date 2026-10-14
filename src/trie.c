@@ -169,17 +169,17 @@ NODISCARD static bool add_value_to_trie_hash_map_impl(const TrieEntryArray* entr
 
 		if(map_entry->type == TrieNodeEntryTypeValue) {
 			// we already have a value, it should be the same
-			// TODO: we have it duplicated in the array, which shoudln't happen, maybe just call
-			// search before inserting?
+			// TODO(Totto): we have it duplicated in the array, which shoudln't happen, maybe just
+			// call search before inserting?
 
-			// TODO: check if it's the same value?
+			// TODO(Totto): check if it's the same value?
 			return true;
 		} else if(map_entry->type == TrieNodeEntryTypeBranchAndValue) {
 			// we already have a value, it should be the same
-			// TODO: we have it duplicated in the array, which shoudln't happen, maybe just call
-			// search before inserting?
+			// TODO(Totto): we have it duplicated in the array, which shoudln't happen, maybe just
+			// call search before inserting?
 
-			// TODO: check if it's the same value?
+			// TODO(Totto): check if it's the same value?
 			return true;
 		} else if(map_entry->type == TrieNodeEntryTypeBranch) {
 
@@ -433,7 +433,7 @@ NODISCARD static tstr trie_add_matches_to_array_all_branch_impl(const TrieEntryA
 	}
 }
 
-// TODO: do that v
+// TODO(Totto): do that v
 //  NOTE: this is a tstr helper function, that I should eventually add to tstr
 NODISCARD static bool tstr_view_starts_with_view(tstr_view view, tstr_view prefix) {
 	if(prefix.len > view.len) {
