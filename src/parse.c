@@ -237,7 +237,7 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 
 						ADD_TO_ACCUMULATOR(orig, add_raw_span);
 					}
-					start = i + 1;
+					start = i;
 				} else if(character == '\\') {
 					state = (ParseState){ .type = ParseStateTypeEscape, .data = {} };
 
@@ -485,10 +485,31 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 							// TODO: when implementing set -u, here we should throw an
 							// error, as we are resolving unset variables to an empty string
 
-							resolved_variable = TSTR_TSV("");
-						}
+							// NOTE: in the case of not being in "", we never add to the
+							// accumulator, as "
+							//  $VAR " should resolve to nothing new, when VAR is not defined
 
-						ADD_TO_ACCUMULATOR(resolved_variable, add_raw_span);
+							const size_t acc_start = (size_t)(acc.raw.data - input.data);
+
+							if(acc_start == var_start) {
+								// we ignore ans skip this, we advance the accumulator and start, so
+								// that it represents the actual start
+								//							acc.raw = tstr_sub_until_end(acc.raw,
+								// add_raw_span-1);
+								acc = (ParseStateAccumulator){
+									.raw = (tstr_view){ .data = input.data + i, .len = 0 },
+									.str = tstr_from("")
+								};
+							} else {
+								// TODO. is this correct?
+								//  we just add nothing, acc stays the same, start stays the same,
+								//  so that the raw string is the one with the variable in it, but
+								//  the parsed on has nothing at its space
+							}
+
+						} else {
+							ADD_TO_ACCUMULATOR(resolved_variable, add_raw_span);
+						}
 
 						state = (ParseState){ .type = ParseStateTypeNormal, .data = {} };
 
