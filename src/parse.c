@@ -57,6 +57,7 @@ typedef enum : uint8_t {
 	ParseStateTypeSingleQuote,
 	ParseStateTypeDoubleQuote,
 	ParseStateTypeEscape,
+	ParseStateTypeVariable,
 } ParseStateType;
 
 typedef struct {
@@ -77,6 +78,10 @@ typedef struct {
 } ParseStateDoubleQuoteVariable;
 
 typedef struct {
+	ParseStateDoubleQuoteVariable var;
+} ParseStateVariable;
+
+typedef struct {
 	ParseStateDoubleQuoteType type;
 	union {
 		ParseStateDoubleQuoteVariable variable;
@@ -87,6 +92,7 @@ typedef struct {
 	ParseStateType type;
 	union {
 		ParseStateDoubleQuote double_quote;
+		ParseStateVariable variable;
 	} data;
 } ParseState;
 
@@ -211,6 +217,27 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 						ADD_TO_ACCUMULATOR(orig, add_raw_span);
 					}
 					start = i + 1;
+				} else if(character == '$') {
+					state = (ParseState){ .type = ParseStateTypeVariable,
+						                  .data = { .variable = { .var = {
+						                                              .uses_brackets = false,
+						                                              .first = true,
+						                                              .start = i,
+						                                          } } } };
+
+					if(start == i) {
+						// no string before it, just advance start
+					} else {
+						// if we have some string before $ we need to set the accumulator
+						// to it the thing before this is a normal string without quotes,
+						// otherwise it would already be consumed
+						const tstr_view orig =
+						    (tstr_view){ .data = input.data + start, .len = i - start };
+						const size_t add_raw_span = (i - start) + 1;
+
+						ADD_TO_ACCUMULATOR(orig, add_raw_span);
+					}
+					start = i + 1;
 				} else if(character == '\\') {
 					state = (ParseState){ .type = ParseStateTypeEscape, .data = {} };
 
@@ -321,7 +348,7 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 										.is_ok = false,
 										.data = { .error =
 										              TSTR_LIT("[INTERNAL] invalid data after $: "
-										                       "expected valid identifier to at "
+										                       "expected valid identifier to be at "
 										                       "least one char long") }
 									};
 								}
@@ -403,6 +430,76 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 
 				break;
 			}
+			case ParseStateTypeVariable: {
+				ParseStateDoubleQuoteVariable* const variable_state = &state.data.variable.var;
+
+				if(variable_state->first) {
+					variable_state->first = false;
+
+					if(character == '{') {
+						variable_state->uses_brackets = true;
+					} else {
+						if(!shell_is_valid_identifier_start(character)) {
+							return (ParsedPipelineResult){
+								.is_ok = false,
+								.data = { .error = TSTR_LIT("[INTERNAL] invalid data after $: "
+								                            "expected valid identifier to be at "
+								                            "least one char long") }
+							};
+						}
+					}
+				} else {
+
+					bool is_finished = false;
+
+					if(variable_state->uses_brackets) {
+						is_finished = character == '}';
+					} else {
+						// this is more complicated, as we NEED a lookahead
+						if(i + 1 < input.len) {
+							const char next_character = input.data[i + 1];
+							is_finished = !shell_is_valid_identifier_character(next_character);
+						} else {
+							is_finished = true;
+						}
+					}
+
+					if(is_finished) {
+
+						const size_t var_start = variable_state->start;
+
+						const tstr_view variable_name = (tstr_view){
+							.data =
+							    input.data + var_start + (variable_state->uses_brackets ? 2 : 1),
+							.len = i - (var_start + (variable_state->uses_brackets ? 2 : 0))
+						};
+
+						const size_t add_raw_span = i - var_start;
+
+						ShellResolvedValue resolved_result =
+						    shell_get_variable_value(shell, variable_name);
+
+						if(!resolved_result.has_value) {
+
+							return (ParsedPipelineResult){
+								.is_ok = false,
+								.data = { .error = TSTR_LIT("TODO: atm only set variables "
+								                            "are resolved") }
+							};
+						}
+
+						tstr_view resolved_variable = resolved_result.value_view;
+
+						ADD_TO_ACCUMULATOR(resolved_variable, add_raw_span);
+
+						state = (ParseState){ .type = ParseStateTypeNormal, .data = {} };
+
+						start = i + 1;
+					}
+				}
+
+				break;
+			}
 			default: {
 				return (ParsedPipelineResult){
 					.is_ok = false, .data = { .error = TSTR_LIT("[INTERNAL] wrong parse state") }
@@ -423,6 +520,10 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 		} else if(state.type == ParseStateTypeEscape) {
 			return (ParsedPipelineResult){
 				.is_ok = false, .data = { .error = TSTR_LIT("Unterminated escape sequence") }
+			};
+		} else if(state.type == ParseStateTypeVariable) {
+			return (ParsedPipelineResult){
+				.is_ok = false, .data = { .error = TSTR_LIT("Unterminated variable name") }
 			};
 		} else {
 			return (ParsedPipelineResult){
