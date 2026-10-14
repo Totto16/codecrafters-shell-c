@@ -2633,6 +2633,7 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 	ShellExecuteSyncCaptureResult exec_result =
 	    invoke_executable_synchronous_capture(path, &invoke_name, &arguments, &envs);
 
+		//TODO: remove, after we debugged this
 	bool is_docker = false;
 
 	// TODO: this tests some flaky codecarfter teets, is it my fault or the one from the script
