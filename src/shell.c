@@ -250,7 +250,7 @@ static void free_shell_history(ShellHistory* history) {
 }
 
 static void free_shell_variable(ShellVariable* variable) {
-	tstr_free(&(variable->key));
+	tstr_free(&(variable->name));
 	tstr_free(&(variable->value));
 }
 
@@ -458,6 +458,10 @@ static const ShellCompletion* shell_get_completion_impl(ShellCompletionState* st
 	return completion;
 }
 
+static void free_shell_completion(ShellCompletion* completion) {
+	tstr_free(&completion->script);
+}
+
 static bool shell_set_completion_impl(ShellCompletionState* state, tstr name,
                                       ShellCompletion completion) {
 
@@ -475,7 +479,7 @@ static bool shell_set_completion_impl(ShellCompletionState* state, tstr name,
 		ASSERT(map_entry != NULL);
 		ASSERT(map_entry != TMAP_WOULD_OVERWRITE);
 
-		tstr_free(&map_entry->script);
+		free_shell_completion(map_entry);
 
 		*map_entry = completion;
 
@@ -529,6 +533,92 @@ static const ShellVariable* shell_get_variable_impl(ShellVariableStorage* storag
 	}
 
 	return variable;
+}
+
+typedef struct {
+	bool is_ok;
+	union {
+		tstr error;
+		ShellVariable ok;
+	} data;
+} ShellVariableParseResult;
+
+static ShellVariableParseResult shell_parse_variable(tstr_view arg) {
+
+	if(arg.len == 0) {
+		return (ShellVariableParseResult){ .is_ok = false,
+			                               .data = { .error = TSTR_LIT("empty variable") } };
+	}
+
+	tstr_view name = arg;
+	tstr_view value = TSTR_EMPTY_VIEW;
+
+	for(size_t i = 0; i < arg.len; ++i) {
+
+		const char character = arg.data[i];
+
+		if(character == '=') {
+			name = tstr_sub(arg, 0, i);
+			if(i + 1 < arg.len) {
+				value = tstr_sub_until_end(arg, i + 1);
+			} else {
+				value = TSTR_TSV("");
+			}
+			break;
+		}
+	}
+
+	// TODO: validate identifier
+
+	tstr name_str = tstr_from_view(name);
+	tstr value_str = tstr_from("");
+	if(value.data != NULL) {
+		value_str = tstr_from_view(value);
+	}
+
+	return (ShellVariableParseResult){ .is_ok = true,
+		                               .data = { .ok = { .name = name_str,
+		                                                 .value = value_str,
+		                                                 .attributes = { ._unused = false } } } };
+}
+
+static bool shell_set_variable_impl(ShellVariableStorage* storage, tstr_view arg) {
+
+	ShellVariableParseResult parse_result = shell_parse_variable(arg);
+
+	if(!parse_result.is_ok) {
+		// TODO: foward exact error
+		tstr_free(&(parse_result.data.error));
+		return false;
+	}
+
+	const ShellVariable variable = parse_result.data.ok;
+
+	tstr key = tstr_dup(&variable.name);
+
+	ShellVariable* map_entry = TMAP_INSERT_SLOT(ShellVariableHashMap, &(storage->map), key, false);
+	ASSERT(map_entry != NULL);
+
+	if(map_entry == TMAP_WOULD_OVERWRITE) {
+		// free the entry before overwriting it, as this is the expected behaviour of set rather
+		// then add, also free the key, as it is also duplicate
+
+		tstr_free(&key);
+
+		map_entry = TMAP_INSERT_SLOT(ShellVariableHashMap, &(storage->map), key, true);
+		ASSERT(map_entry != NULL);
+		ASSERT(map_entry != TMAP_WOULD_OVERWRITE);
+
+		free_shell_variable(map_entry);
+
+		*map_entry = variable;
+
+		return true;
+	}
+
+	*map_entry = variable;
+
+	return true;
 }
 
 static const ShellCompletion* shell_virtual_fn_sync_get_completion(shell_virtual_context ctx,
@@ -720,6 +810,12 @@ static const ShellVariable* shell_virtual_fn_sync_get_variable(shell_virtual_con
 	return shell_get_variable_impl(&(state->global.variables), name);
 }
 
+static bool shell_virtual_fn_sync_set_variable(shell_virtual_context ctx, tstr_view arg) {
+	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
+
+	return shell_set_variable_impl(&(state->global.variables), arg);
+}
+
 static tstr_view shell_virtual_fn_sync_get_current_working_directory(shell_virtual_context ctx) {
 
 	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
@@ -769,6 +865,7 @@ static const ShellVirtualFunctions g_shell_functions_synchronous = {
 	.get_job = shell_virtual_fn_sync_get_job,
 	.reap_jobs = shell_virtual_fn_sync_reap_jobs,
 	.get_variable = shell_virtual_fn_sync_get_variable,
+	.set_variable = shell_virtual_fn_sync_set_variable,
 };
 
 #define SHELL_HANDLE_SYNCHRONOUS(ctx) \
@@ -918,6 +1015,12 @@ static const ShellVariable* shell_virtual_fn_subshell_get_variable(shell_virtual
 	return shell_get_variable_impl(&(state->instance.variables), name);
 }
 
+static bool shell_virtual_fn_subshell_set_variable(shell_virtual_context ctx, tstr_view arg) {
+	ShellSubShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellSubShellState, ctx);
+
+	return shell_set_variable_impl(&(state->instance.variables), arg);
+}
+
 static tstr_view
 shell_virtual_fn_subshell_get_current_working_directory(shell_virtual_context ctx) {
 
@@ -968,6 +1071,7 @@ static const ShellVirtualFunctions g_shell_functions_subshell = {
 	.get_job = shell_virtual_fn_subshell_get_job,
 	.reap_jobs = shell_virtual_fn_subshell_reap_jobs,
 	.get_variable = shell_virtual_fn_subshell_get_variable,
+	.set_variable = shell_virtual_fn_subshell_set_variable,
 };
 
 #define SHELL_HANDLE_SUBSHELL(ctx) { .context = (ctx), .function = g_shell_functions_subshell };
@@ -1908,7 +2012,7 @@ static void free_completion_storage(ShellCompleteStorage* storage) {
 
 	while(TMAP_ITER_NEXT(ShellCompletionHashMap, &iter, &value)) {
 		tstr_free(&value.key);
-		tstr_free(&value.value.script);
+		free_shell_completion(&value.value);
 	}
 
 	TMAP_FREE(ShellCompletionHashMap, &(storage->map));
@@ -2949,7 +3053,7 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 
 		} else {
 			// TODO
-			// is_docker = true;
+			is_docker = true;
 		}
 	}
 
@@ -2997,6 +3101,8 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 			}
 
 			fprintf(stderr, "TRYING TO DO DOCKER: array length = %zu\t\n", len);
+
+			fprintf(stderr, "TRYING TO DO DOCKER: array entry0 = %s\t\n", *(ok.array.raw + 1));
 		}
 
 		if(ok.suppress_append) {

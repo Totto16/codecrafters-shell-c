@@ -103,12 +103,14 @@ typedef struct {
 } ShellVariableAttributes;
 
 typedef struct {
-	tstr key;
+	tstr name;
 	tstr value;
 	ShellVariableAttributes attributes;
 } ShellVariable;
 
 typedef const ShellVariable* (*shell_fn_get_variable)(shell_virtual_context ctx, const tstr* name);
+
+typedef bool (*shell_fn_set_variable)(shell_virtual_context ctx, tstr_view arg);
 
 typedef struct {
 	shell_fn_get_current_working_directory get_current_working_directory;
@@ -124,6 +126,7 @@ typedef struct {
 	shell_fn_get_job get_job;
 	shell_fn_reap_jobs reap_jobs;
 	shell_fn_get_variable get_variable;
+	shell_fn_set_variable set_variable;
 } ShellVirtualFunctions;
 
 typedef struct {

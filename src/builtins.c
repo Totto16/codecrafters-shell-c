@@ -1201,6 +1201,7 @@ static const BuiltinCommand builtin_function_jobs = {
 
 typedef enum : uint8_t {
 	DeclareTypePrint = 0,
+	DeclareTypeAdd,
 } DeclareType;
 
 typedef struct {
@@ -1208,9 +1209,14 @@ typedef struct {
 } DeclarePrint;
 
 typedef struct {
+	tstr arg;
+} DeclareAdd;
+
+typedef struct {
 	DeclareType type;
 	union {
 		DeclarePrint print;
+		DeclareAdd add;
 	} data;
 } DeclareData;
 
@@ -1220,10 +1226,20 @@ TRTTI_IMPLEMENTATION_FOR_TYPE(DeclareData)
 
 static ShellParseArgumentsResult declare_parse_arguments(const ShellArguments* args) {
 
-	if(args->length == 0 || args->length == 1) {
+	if(args->length == 0) {
 		return (ShellParseArgumentsResult){
 			.is_ok = false, .data = { .error = TSTR_LIT("declare: too few arguments") }
 		};
+	} else if(args->length == 1) {
+		const ShellArgument* const arg1 = TVEC_GET_AT(ShellArgument, args, 0);
+		ASSERT(arg1 != NULL);
+
+		;
+
+		tstr arg = tstr_dup(&(arg1->parsed));
+
+		DeclareData declare_data = { .type = DeclareTypeAdd, .data = { .add = { .arg = arg } } };
+		RETURN_ARGUMENT(DeclareData, declare_data);
 	} else if(args->length == 2) {
 
 		const ShellArgument* const arg1 = TVEC_GET_AT(ShellArgument, args, 0);
@@ -1259,6 +1275,10 @@ static void declare_free_arguments(shell_dynamic_args args) {
 			tstr_free(&(declare_data->data.print.name));
 			break;
 		}
+		case DeclareTypeAdd: {
+			tstr_free(&(declare_data->data.add.arg));
+			break;
+		}
 		default: {
 			break;
 		}
@@ -1288,8 +1308,8 @@ static ExitCode declare_invoke(shell_dynamic_args args, const ShellHandle shell,
 			} else {
 
 				int res =
-				    SHELL_FPINTF(stdout, "declare -- '" TSTR_FMT "' " TSTR_FMT "\n",
-				                 TSTR_FMT_ARGS(variable->key), TSTR_FMT_ARGS(variable->value));
+				    SHELL_FPINTF(stdout, "declare -- " TSTR_FMT "=\"" TSTR_FMT "\"\n",
+				                 TSTR_FMT_ARGS(variable->name), TSTR_FMT_ARGS(variable->value));
 				if(res < 0) {
 					RETURN_IO_ERROR("declare");
 				}
@@ -1297,8 +1317,27 @@ static ExitCode declare_invoke(shell_dynamic_args args, const ShellHandle shell,
 				return ExitCodeSuccess;
 			}
 		}
+		case DeclareTypeAdd: {
+			const DeclareAdd add = declare_data->data.add;
+
+			bool ok = shell.function.set_variable(shell.context, tstr_as_view(&add.arg));
+
+			if(!ok) {
+				int res = SHELL_FPINTF(stdout, "declare: `" TSTR_FMT "': not a valid identifier\n",
+				                       TSTR_FMT_ARGS(add.arg));
+
+				if(res < 0) {
+					RETURN_IO_ERROR("declare");
+				}
+
+				return ExitCodeGenericError;
+			} else {
+
+				return ExitCodeSuccess;
+			}
+		}
 		default: {
-			RETURN_IMPL_ERROR("complete", "Invalid complete type");
+			RETURN_IMPL_ERROR("complete", "Invalid declare type");
 		}
 	}
 }
