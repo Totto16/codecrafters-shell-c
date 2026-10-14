@@ -2881,6 +2881,7 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 			char** ptr = ok.array.raw + 1;
 			while(*ptr != NULL) {
 				++len;
+				ptr++;
 			}
 
 			fprintf(stderr, "TRYING TO DO DOCKER: array length = %zu\t\n", len);
