@@ -1129,7 +1129,7 @@ static ExitCode jobs_invoke(shell_dynamic_args args, const ShellHandle shell, co
 
 	UNUSED(args);
 
-	size_t jobs_size = shell.function.get_jobs_size(shell.context);
+	const size_t jobs_size = shell.function.get_jobs_size(shell.context);
 
 	for(size_t i = 0; i < jobs_size; ++i) {
 

@@ -517,10 +517,7 @@ static size_t shell_virtual_fn_sync_get_jobs_size(shell_virtual_context ctx) {
 	return TVEC_LENGTH(ShellJobState, state->jobs_state.array);
 }
 
-static ShellJobInfoResult shell_virtual_fn_sync_get_job(shell_virtual_context ctx, size_t idx) {
-
-	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
-
+static ShellJobInfoResult shell_global_get_job_impl(ShellState* state, size_t idx) {
 	ShellJobState* const arg = TVEC_GET_AT_MUT(ShellJobState, &(state->jobs_state.array), idx);
 	if(arg == NULL) {
 		return (ShellJobInfoResult){ .is_ok = false,
@@ -602,6 +599,13 @@ static ShellJobInfoResult shell_virtual_fn_sync_get_job(shell_virtual_context ct
 	return (ShellJobInfoResult){ .is_ok = true, .data = { .ok = info } };
 }
 
+static ShellJobInfoResult shell_virtual_fn_sync_get_job(shell_virtual_context ctx, size_t idx) {
+
+	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
+
+	return shell_global_get_job_impl(state, idx);
+}
+
 static void shell_global_reap_jobs_impl_only_removal(ShellState* state) {
 	for(size_t i = 0; i < TVEC_LENGTH(ShellJobState, state->jobs_state.array);) {
 
@@ -616,6 +620,49 @@ static void shell_global_reap_jobs_impl_only_removal(ShellState* state) {
 			++i;
 		}
 	}
+}
+
+static void shell_reap_background_jobs(ShellState* state) {
+
+	const size_t jobs_size = TVEC_LENGTH(ShellJobState, state->jobs_state.array);
+
+	for(size_t i = 0; i < jobs_size; ++i) {
+
+		ShellJobInfoResult job_result = shell_global_get_job_impl(state, i);
+
+		if(!job_result.is_ok) {
+
+			RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+			RETURNS_VOID shell_print_error("[INTERNAL] jobs get error: " TSTR_FMT "\n",
+			                               TSTR_FMT_ARGS(job_result.data.error));
+
+			tstr_free(&job_result.data.error);
+			return;
+		}
+		const ShellJobInfo info = job_result.data.ok;
+
+		const char marker = info.type == ShellJobTypeRecent    ? '+'
+		                    : info.type == ShellJobTypeRecent2 ? '-'
+		                                                       : ' ';
+
+		if(info.run_state == ShellJobRunStateDone) {
+
+			const char* status = "Done";
+
+			int fres = fprintf(stdout, "[%zu]%c %-*s " TSTR_FMT "\n", info.id, marker, 24, status,
+			                   TSV_FMT_ARGS(info.command));
+
+			if(fres < 0) {
+				RETURNS_VOID shell_global_exit(state, ExitCodeIOError);
+
+				RETURNS_VOID shell_print_error("[INTERNAL] output error\n");
+				return;
+			}
+		}
+	}
+
+	RETURNS_VOID shell_global_reap_jobs_impl_only_removal(state);
 }
 
 static void shell_virtual_fn_sync_reap_jobs(shell_virtual_context ctx) {
@@ -1632,6 +1679,8 @@ static void shell_repl_step(ShellState* state) {
 #endif
 
 	RETURNS_VOID free_shell_input_ok_result(data);
+
+	RETURNS_VOID shell_reap_background_jobs(state);
 }
 
 static void shell_populate_history(ShellState* state) {
@@ -2843,18 +2892,18 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 
 	if(is_docker) {
 		g_is_docker = true;
-		//fprintf(stderr, "TRYING TO DO DOCKER\t");
+		// fprintf(stderr, "TRYING TO DO DOCKER\t");
 	}
 
 	RLCompletionResult array =
 	    shell_completion_function_rl_impl(g_rl_internal_completion_state, text, start, end);
 
 	/* if(is_docker) {
-		fprintf(stderr, "array.type: %d %s\t", array.type,
-		        array.type == RLCompletionResultTypeError   ? "error"
-		        : array.type == RLCompletionResultTypeEmpty ? "empty"
-		        : array.type == RLCompletionResultTypeOk    ? "ok"
-		                                                    : "<ERRORROR>");
+	    fprintf(stderr, "array.type: %d %s\t", array.type,
+	            array.type == RLCompletionResultTypeError   ? "error"
+	            : array.type == RLCompletionResultTypeEmpty ? "empty"
+	            : array.type == RLCompletionResultTypeOk    ? "ok"
+	                                                        : "<ERRORROR>");
 	} */
 
 	if(array.type == RLCompletionResultTypeError) {
