@@ -2870,6 +2870,17 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 
 		RLCompletionOk ok = array.data.ok;
 
+		if(is_docker) {
+
+			size_t len = 0;
+			char** ptr = ok.array.raw + 1;
+			while(*ptr != NULL) {
+				++len;
+			}
+
+			fprintf(stderr, "TRYING TO DO DOCKER: array length = %zu\n", len);
+		}
+
 		if(ok.suppress_append) {
 			rl_completion_suppress_append = 1;
 		} else {
