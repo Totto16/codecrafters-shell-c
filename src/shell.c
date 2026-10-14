@@ -1230,7 +1230,8 @@ static void shell_execute_command_as_background_job(ShellState* state,
 
 	const size_t job_length = TVEC_LENGTH(ShellJobState, state->jobs_state.array);
 
-	// NOTE: this is my understanding of how IDs are assigned, no idea if it's correct
+	// NOTE: the job number is one, if the array is empty, otherwise we chose the highest job number
+	// + 1
 	if(job_length == 0) {
 		job.id = 1;
 	} else {
