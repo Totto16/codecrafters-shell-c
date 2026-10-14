@@ -2853,7 +2853,8 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 		fprintf(stderr, "array.type: %d %s\t", array.type,
 		        array.type == RLCompletionResultTypeError   ? "error"
 		        : array.type == RLCompletionResultTypeEmpty ? "empty"
-		                                                    : array.type == RLCompletionResultTypeOk ? "ok": "<ERRORROR>");
+		        : array.type == RLCompletionResultTypeOk    ? "ok"
+		                                                    : "<ERRORROR>");
 	}
 
 	if(array.type == RLCompletionResultTypeError) {
@@ -2893,6 +2894,9 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 
 		return ok.array.raw;
 	} else {
+		shell_global_debug(
+		    g_rl_internal_completion_state,
+		    "[DEBUG]: INTERNAL error in the completer code: invalid result type: %u\n", array.type);
 		rl_completion_suppress_append = 1;
 
 		return NULL;
