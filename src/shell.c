@@ -2633,7 +2633,7 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 	ShellExecuteSyncCaptureResult exec_result =
 	    invoke_executable_synchronous_capture(path, &invoke_name, &arguments, &envs);
 
-		//TODO: remove, after we debugged this
+	// TODO: remove, after we debugged this
 	bool is_docker = false;
 
 	// TODO: this tests some flaky codecarfter teets, is it my fault or the one from the script
@@ -2820,6 +2820,18 @@ static ShellState* g_rl_internal_completion_state = NULL;
 NODISCARD static char** shell_completion_function_rl(const char* text, int start, int end) {
 
 	rl_attempted_completion_over = 1;
+
+	bool is_docker = false;
+
+	if(end >= 6 && rl_line_buffer[0] == 'd' && rl_line_buffer[1] == 'o' &&
+	   rl_line_buffer[2] == 'c' && rl_line_buffer[3] == 'k' && rl_line_buffer[4] == 'e' &&
+	   rl_line_buffer[5] == 'r') {
+		is_docker = true;
+	}
+
+	if(is_docker){
+		fprintf(stderr, "TRYING TO DO DOCKER\n");
+	}
 
 	RLCompletionResult array =
 	    shell_completion_function_rl_impl(g_rl_internal_completion_state, text, start, end);
