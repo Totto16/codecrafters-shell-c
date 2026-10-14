@@ -385,16 +385,15 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 								ShellResolvedValue resolved_result =
 								    shell_get_variable_value(shell, variable_name);
 
+								tstr_view resolved_variable = resolved_result.value_view;
+
 								if(!resolved_result.has_value) {
 
-									return (ParsedPipelineResult){
-										.is_ok = false,
-										.data = { .error = TSTR_LIT("TODO: atm only set variables "
-										                            "are resolved") }
-									};
-								}
+									// TODO: when implementing set -u, here we should throw an
+									// error, as we are resolving unset variables to an empty string
 
-								tstr_view resolved_variable = resolved_result.value_view;
+									resolved_variable = TSTR_TSV("");
+								}
 
 								ADD_TO_ACCUMULATOR(resolved_variable, add_raw_span);
 
@@ -479,16 +478,15 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 						ShellResolvedValue resolved_result =
 						    shell_get_variable_value(shell, variable_name);
 
+						tstr_view resolved_variable = resolved_result.value_view;
+
 						if(!resolved_result.has_value) {
 
-							return (ParsedPipelineResult){
-								.is_ok = false,
-								.data = { .error = TSTR_LIT("TODO: atm only set variables "
-								                            "are resolved") }
-							};
-						}
+							// TODO: when implementing set -u, here we should throw an
+							// error, as we are resolving unset variables to an empty string
 
-						tstr_view resolved_variable = resolved_result.value_view;
+							resolved_variable = TSTR_TSV("");
+						}
 
 						ADD_TO_ACCUMULATOR(resolved_variable, add_raw_span);
 
