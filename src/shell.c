@@ -2672,6 +2672,11 @@ NODISCARD static ShellCompletionLineResult shell_resolve_completion_line_impl(Sh
 	ShellHandle shell_handle = SHELL_HANDLE_SYNCHRONOUS(state_rtti);
 	ShellParseDataResult parse = shell_parse_data(prefix, shell_handle);
 
+	if(g_is_docker) {
+		fprintf(stderr, "TRYING TO DO DOCKER: completion check: '" TSTR_FMT "' parse.type: %d\t",
+		        TSV_FMT_ARGS(prefix), parse.type);
+	}
+
 	switch(parse.type) {
 		case ShellParseDataResultTypePipeline: {
 			ShellParseDataPipeline pipeline = parse.data.pipeline;
@@ -2681,7 +2686,12 @@ NODISCARD static ShellCompletionLineResult shell_resolve_completion_line_impl(Sh
 			// duplicate the last entry
 			const size_t pipeline_length = TVEC_LENGTH(ShellCommand, pipeline.commands);
 
+			if(g_is_docker) {
+				fprintf(stderr, "TRYING TO DO DOCKER: pipeline_length %zu\t", pipeline_length);
+			}
+
 			if(pipeline_length == 0) {
+
 				result = (ShellCompletionLineResult){ .is_ok = false, .data = {} };
 				goto return_result;
 			}
@@ -2694,6 +2704,11 @@ NODISCARD static ShellCompletionLineResult shell_resolve_completion_line_impl(Sh
 
 			const ShellCompletion* completion =
 			    shell_get_completion_impl(&(state->completion_state), &(arg0.parsed));
+
+			if(g_is_docker) {
+				fprintf(stderr, "TRYING TO DO DOCKER: completion ptr %p\t",
+				        (const void*)completion);
+			}
 
 			if(completion == NULL) {
 				result = (ShellCompletionLineResult){ .is_ok = false, .data = {} };
