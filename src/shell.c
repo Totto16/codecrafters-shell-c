@@ -534,6 +534,45 @@ static const ShellVariable* shell_get_variable_impl(ShellVariableStorage* storag
 	return variable;
 }
 
+static bool shell_is_valid_identifier_start(const char start) {
+	if(start == '_') {
+		return true;
+	}
+
+	return isalpha(start) != 0;
+}
+
+static bool shell_is_valid_identifier_character(const char character) {
+	if(character == '_') {
+		return true;
+	}
+
+	return isalnum(character) != 0;
+}
+
+static bool shell_is_valid_identifier(tstr_view identifier) {
+	if(identifier.len == 0) {
+		return false;
+	}
+
+	const char start_character = identifier.data[0];
+
+	if(!shell_is_valid_identifier_start(start_character)) {
+		return false;
+	}
+
+	for(size_t i = 1; i < identifier.len; ++i) {
+
+		const char character = identifier.data[i];
+
+		if(!shell_is_valid_identifier_character(character)) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
 typedef struct {
 	bool is_ok;
 	union {
@@ -567,7 +606,10 @@ static ShellVariableParseResult shell_parse_variable(tstr_view arg) {
 		}
 	}
 
-	// TODO: validate identifier
+	if(!shell_is_valid_identifier(name)) {
+		return (ShellVariableParseResult){ .is_ok = false,
+			                               .data = { .error = TSTR_LIT("invalid identifier") } };
+	}
 
 	tstr name_str = tstr_from_view(name);
 	tstr value_str = tstr_from("");
