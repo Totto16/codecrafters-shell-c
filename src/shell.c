@@ -3076,7 +3076,7 @@ shell_completion_function_rl_impl(ShellState* state, const char* text, int start
 		return completion_result_array_to_rl_completion_array(&array, string);
 	}
 
-	tstr_view before = (tstr_view){ .data = rl_line_buffer, .len = (size_t)(start - 1) };
+	tstr_view before = (tstr_view){ .data = rl_line_buffer, .len = (size_t)(start) };
 	tstr_view everything = (tstr_view){ .data = rl_line_buffer, .len = (size_t)end };
 
 	// we are in argument n of a command, we figure out which command, and if that command
