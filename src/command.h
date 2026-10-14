@@ -3,28 +3,34 @@
 #pragma once
 
 #include "./builtins.h"
+#include "./executable.h"
 #include "./utils.h"
 
 #include <tstr/tstr.h>
 
 typedef enum : uint8_t {
-	CommandTypeTypeBuiltin = 0,
-	CommandTypeTypeExecutable,
-	CommandTypeTypeNotFound,
-} CommandTypeType;
+	CommandTypeBuiltin = 0,
+	CommandTypeExecutable,
+	CommandTypeNotFound,
+} CommandType;
 
 typedef struct {
 	tstr path;
-} ExecutableData;
+} ShellExecutableData;
 
 typedef struct {
-	CommandTypeType type;
+	ShellExecutableErrorType reason;
+} ShellCommandNotFoundData;
+
+typedef struct {
+	CommandType type;
 	union {
-		ExecutableData executable;
+		ShellExecutableData executable;
 		BuiltinCommand builtin;
+		ShellCommandNotFoundData not_found;
 	} data;
-} CommandType;
+} ShellResolvedCommand;
 
-NODISCARD CommandType determine_command_type(tstr_view command);
+NODISCARD ShellResolvedCommand shell_resolve_command(tstr_view command, ShellHandle shell);
 
-void free_executable_data(ExecutableData* data);
+void free_executable_data(ShellExecutableData* data);

@@ -357,10 +357,10 @@ static ExitCode type_invoke(shell_dynamic_args args, const ShellHandle shell, co
 		const TypeArgument* const arg = TVEC_GET_AT(TypeArgument, &(type_data->args), i);
 		ASSERT(arg != NULL);
 
-		CommandType command_type = determine_command_type(arg->name);
+		ShellResolvedCommand resolved_command = shell_resolve_command(arg->name, shell);
 
-		switch(command_type.type) {
-			case CommandTypeTypeBuiltin: {
+		switch(resolved_command.type) {
+			case CommandTypeBuiltin: {
 				int res =
 				    SHELL_FPINTF(stdout, TSTR_FMT " is a shell builtin\n", TSV_FMT_ARGS(arg->name));
 				if(res < 0) {
@@ -368,19 +368,19 @@ static ExitCode type_invoke(shell_dynamic_args args, const ShellHandle shell, co
 				}
 				break;
 			}
-			case CommandTypeTypeExecutable: {
+			case CommandTypeExecutable: {
 				int res =
 				    SHELL_FPINTF(stdout, TSTR_FMT " is " TSTR_FMT "\n", TSV_FMT_ARGS(arg->name),
-				                 TSTR_FMT_ARGS(command_type.data.executable.path));
+				                 TSTR_FMT_ARGS(resolved_command.data.executable.path));
 
-				free_executable_data(&command_type.data.executable);
+				free_executable_data(&resolved_command.data.executable);
 
 				if(res < 0) {
 					RETURN_IO_ERROR("type");
 				}
 				break;
 			}
-			case CommandTypeTypeNotFound: {
+			case CommandTypeNotFound: {
 				code = ExitCodeGenericError;
 				int res = SHELL_FPINTF(stdout, TSTR_FMT ": not found\n", TSV_FMT_ARGS(arg->name));
 				if(res < 0) {

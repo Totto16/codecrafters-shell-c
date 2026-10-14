@@ -2,10 +2,12 @@
 #pragma once
 
 #include "./builtins.h"
+#include "./command.h"
 #include "./utils.h"
 
 typedef struct {
 	tstr name;
+	ShellExecutableErrorType reason;
 } ShellCommandNotFound;
 
 typedef enum : uint8_t { ShellCommandTypeBuiltin = 0, ShellCommandTypeExecutable } ShellCommandType;

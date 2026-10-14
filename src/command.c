@@ -3,28 +3,33 @@
 #include "./command.h"
 #include "./executable.h"
 
-CommandType determine_command_type(tstr_view command) {
+ShellResolvedCommand shell_resolve_command(tstr_view command, const ShellHandle shell) {
 	for(size_t i = 0; i < BUILTIN_FUNCTION_COUNT; ++i) {
 
 		BuiltinCommand builtin_command = g_builtin_functions[i];
 
 		if(tstr_view_eq_view(command, tstr_static_as_view(builtin_command.name))) {
 
-			return (CommandType){ .type = CommandTypeTypeBuiltin,
-				                  .data = { .builtin = builtin_command } };
+			return (ShellResolvedCommand){ .type = CommandTypeBuiltin,
+				                           .data = { .builtin = builtin_command } };
 		}
 	}
 
-	tstr executable_path = get_executable_path(command);
+	ShellExecutableResult executable_result = get_executable_path(command, shell);
 
-	if(!tstr_is_null(&executable_path)) {
-		return (CommandType){ .type = CommandTypeTypeExecutable,
-			                  .data = { .executable = { .path = executable_path } } };
+	if(executable_result.is_ok) {
+		return (ShellResolvedCommand){ .type = CommandTypeExecutable,
+			                           .data = { .executable = {
+			                                         .path = executable_result.data.ok,
+			                                     } } };
 	}
 
-	return (CommandType){ .type = CommandTypeTypeNotFound, .data = {} };
+	return (ShellResolvedCommand){ .type = CommandTypeNotFound,
+		                           .data = { .not_found = {
+		                                         .reason = executable_result.data.error.type,
+		                                     } } };
 }
 
-void free_executable_data(ExecutableData* data) {
+void free_executable_data(ShellExecutableData* data) {
 	tstr_free(&(data->path));
 }

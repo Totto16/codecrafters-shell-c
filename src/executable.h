@@ -2,6 +2,7 @@
 
 #include <tstr/tstr.h>
 
+#include "./file.h"
 #include "./functions.h"
 #include "./parse.h"
 #include "./shell.h"
@@ -27,7 +28,7 @@ void free_path_directories(PathDirectories* directories);
 
 NODISCARD PathDirectoriesResult get_path_directories(tstr_view path_env);
 
-NODISCARD tstr get_executable_path(tstr_view name);
+NODISCARD ShellExecutableResult get_executable_path(tstr_view name, const ShellHandle shell);
 
 typedef uint8_t ShellSignal;
 

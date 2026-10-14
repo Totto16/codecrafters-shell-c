@@ -11,7 +11,27 @@ NODISCARD tstr_view path_normalize_dir_ending(tstr_view path);
 
 NODISCARD bool path_exists_and_is_dir(tstr_view path);
 
-NODISCARD tstr path_dir_get_executable(tstr_view dir, tstr_view name);
+typedef enum : uint8_t {
+	ShellExecutableErrorTypeGeneric = 0,
+	ShellExecutableErrorTypeNotFound,
+	ShellExecutableErrorTypeNoPermission
+} ShellExecutableErrorType;
+
+typedef struct {
+	ShellExecutableErrorType type;
+} ShellExecutableError;
+
+typedef struct {
+	bool is_ok;
+	union {
+		tstr ok;
+		ShellExecutableError error;
+	} data;
+} ShellExecutableResult;
+
+NODISCARD ShellExecutableResult path_dir_get_executable_from_parts(tstr_view dir, tstr_view name);
+
+NODISCARD ShellExecutableResult path_dir_get_executable(tstr_view path);
 
 NODISCARD tstr path_get_cwd(void);
 

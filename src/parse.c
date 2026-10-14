@@ -918,15 +918,16 @@ typedef struct {
 	} data;
 } ShellProcessProgramResult;
 
-static ShellProcessProgramResult shell_process_program(ParsedProgram* program) {
+static ShellProcessProgramResult shell_process_program(ParsedProgram* program,
+                                                       const ShellHandle shell) {
 	const tstr* const prog_name = &(program->program.parsed);
 	const ShellArguments* const prog_args = &(program->args);
 
-	CommandType command_type = determine_command_type(tstr_as_view(prog_name));
+	ShellResolvedCommand resolved_command = shell_resolve_command(tstr_as_view(prog_name), shell);
 
-	switch(command_type.type) {
-		case CommandTypeTypeBuiltin: {
-			BuiltinCommand builtin_command = command_type.data.builtin;
+	switch(resolved_command.type) {
+		case CommandTypeBuiltin: {
+			BuiltinCommand builtin_command = resolved_command.data.builtin;
 
 			ShellParseArgumentsResult args_res = builtin_command.validator.parse(prog_args);
 
@@ -958,12 +959,12 @@ static ShellProcessProgramResult shell_process_program(ParsedProgram* program) {
 			return (ShellProcessProgramResult){ .type = ShellProcessProgramResultTypeOk,
 				                                .data = { .ok = command } };
 		}
-		case CommandTypeTypeExecutable: {
+		case CommandTypeExecutable: {
 
 			// we transfer ownership of command_type.data.executable.path to executable,
 			// so no need to free that
 			const ShellCommandExecutable executable = {
-				.path = command_type.data.executable.path,
+				.path = resolved_command.data.executable.path,
 				.invoke_name = tstr_dup(&(program->program.parsed)),
 
 			};
@@ -977,11 +978,14 @@ static ShellProcessProgramResult shell_process_program(ParsedProgram* program) {
 			return (ShellProcessProgramResult){ .type = ShellProcessProgramResultTypeOk,
 				                                .data = { .ok = command } };
 		}
-		case CommandTypeTypeNotFound: {
+		case CommandTypeNotFound: {
+			ShellCommandNotFoundData not_found_data = resolved_command.data.not_found;
+
 			free_shell_arguments(&program->args);
 			free_shell_program_settings(&program->settings);
 
-			ShellCommandNotFound not_found = { .name = program->program.parsed };
+			ShellCommandNotFound not_found = { .name = program->program.parsed,
+				                               .reason = not_found_data.reason };
 
 			return (ShellProcessProgramResult){ .type =
 				                                    ShellProcessProgramResultTypeCommandNotFound,
@@ -1029,7 +1033,7 @@ ShellParseDataResult shell_parse_data(tstr_view input, const ShellHandle shell) 
 		ParsedProgram* const arg = TVEC_GET_AT_MUT(ParsedProgram, &(parsed_pipeline.programs), i);
 		ASSERT(arg != NULL);
 
-		ShellProcessProgramResult process_res = shell_process_program(arg);
+		ShellProcessProgramResult process_res = shell_process_program(arg, shell);
 
 		switch(process_res.type) {
 			case ShellProcessProgramResultTypeOk: {

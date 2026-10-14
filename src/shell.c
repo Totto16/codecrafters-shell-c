@@ -1816,8 +1816,16 @@ static void shell_repl_step(ShellState* state) {
 				    TVEC_GET_AT(ShellCommandNotFound, &(not_found.array), i);
 				ASSERT(command_not_found != NULL);
 
-				int res = fprintf(stderr, TSTR_FMT ": command not found\n",
-				                  TSTR_FMT_ARGS(command_not_found->name));
+				int res = -1;
+				if(command_not_found->reason == ShellExecutableErrorTypeGeneric ||
+				   command_not_found->reason == ShellExecutableErrorTypeNotFound) {
+
+					res = fprintf(stderr, TSTR_FMT ": command not found\n",
+					              TSTR_FMT_ARGS(command_not_found->name));
+				} else {
+					res = fprintf(stderr, TSTR_FMT ": permission denied\n",
+					              TSTR_FMT_ARGS(command_not_found->name));
+				}
 
 				if(res < 0) {
 					RETURNS_VOID shell_global_exit(state, ExitCodeIOError);
@@ -2266,12 +2274,13 @@ NODISCARD static bool shell_add_executables_in_dir_to_completion(Trie* trie, tst
 			continue;
 		}
 
-		tstr executable = path_dir_get_executable(directory, name);
-		if(tstr_is_null(&executable)) {
+		ShellExecutableResult executable_result =
+		    path_dir_get_executable_from_parts(directory, name);
+		if(!executable_result.is_ok) {
 			continue;
 		}
 
-		tstr_free(&executable);
+		tstr_free(&executable_result.data.ok);
 
 		bool ok = add_to_trie(trie, tstr_from_view(name), TrieFlagTypeExecutable);
 		if(!ok) {
@@ -3037,6 +3046,9 @@ shell_completion_function_rl_impl(ShellState* state, const char* text, int start
 	tstr_view string = (tstr_view){ .data = text, .len = (size_t)len };
 
 	if(start == 0) {
+
+		// TODO: if the command starts with "~" "/" or ".", try to complete filenames and not
+		// executables in PATH
 
 		if(g_is_docker) {
 			fprintf(stderr, "TRYING TO DO DOCKER: start == 0, so we try to complete docker and not "

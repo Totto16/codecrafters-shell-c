@@ -82,15 +82,7 @@ static tstr path_join_limbs(const tstr_view* const views, const size_t count) {
 	return result;
 }
 
-tstr path_dir_get_executable(tstr_view dir, tstr_view name) {
-
-	tstr_view limbs[2] = { dir, name };
-
-	tstr path = path_join_limbs(limbs, ARRAY_SIZE(limbs));
-
-	if(tstr_is_null(&path)) {
-		return tstr_null();
-	}
+static ShellExecutableResult path_dir_get_executable_impl(tstr path) {
 
 	// the full path is in path
 	const char* const path_cstr = tstr_cstr(&path);
@@ -101,7 +93,10 @@ tstr path_dir_get_executable(tstr_view dir, tstr_view name) {
 	if(res3 < 0) {
 		tstr_free(&path);
 
-		return tstr_null();
+		return (ShellExecutableResult){ .is_ok = false,
+			                            .data = { .error = {
+			                                          .type = ShellExecutableErrorTypeNotFound,
+			                                      } } };
 	}
 
 	int res4 = access(path_cstr, X_OK);
@@ -109,10 +104,35 @@ tstr path_dir_get_executable(tstr_view dir, tstr_view name) {
 	if(res4 != 0) {
 		tstr_free(&path);
 
-		return tstr_null();
+		return (ShellExecutableResult){ .is_ok = false,
+			                            .data = { .error = {
+			                                          .type = ShellExecutableErrorTypeNoPermission,
+			                                      } } };
 	}
 
-	return path;
+	return (ShellExecutableResult){ .is_ok = true, .data = { .ok = path } };
+}
+
+NODISCARD ShellExecutableResult path_dir_get_executable_from_parts(tstr_view dir, tstr_view name) {
+	tstr_view limbs[2] = { dir, name };
+
+	tstr path = path_join_limbs(limbs, ARRAY_SIZE(limbs));
+
+	if(tstr_is_null(&path)) {
+		return (ShellExecutableResult){ .is_ok = false,
+			                            .data = { .error = {
+			                                          .type = ShellExecutableErrorTypeGeneric,
+			                                      } } };
+	}
+
+	return path_dir_get_executable_impl(path);
+}
+
+NODISCARD ShellExecutableResult path_dir_get_executable(tstr_view path) {
+
+	tstr path_str = tstr_from_view(path);
+
+	return path_dir_get_executable_impl(path_str);
 }
 
 // TODO(Totto): make compatible with other OSes

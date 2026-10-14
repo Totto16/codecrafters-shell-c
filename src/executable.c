@@ -87,12 +87,18 @@ PathDirectoriesResult get_path_directories(tstr_view path_env) {
 	return (PathDirectoriesResult){ .is_ok = true, .data = { .directories = directories } };
 }
 
-tstr get_executable_path(tstr_view name) {
+static ShellExecutableResult get_executable_path_by_name(tstr_view name) {
+
+	// TODO: get from path if its a name, if its starts with / . or ~ resolve it to a path and check
+	// if thats an executable
 
 	const char* const path_env = getenv("PATH");
 
 	if(path_env == NULL) {
-		return tstr_null();
+		return (ShellExecutableResult){ .is_ok = false,
+			                            .data = { .error = {
+			                                          .type = ShellExecutableErrorTypeGeneric,
+			                                      } } };
 	}
 
 	PathDirectoriesResult path_res = get_path_directories(tstr_view_from(path_env));
@@ -100,7 +106,10 @@ tstr get_executable_path(tstr_view name) {
 	if(!path_res.is_ok) {
 		// Note: the error is ignored here
 		tstr_free(&path_res.data.error);
-		return tstr_null();
+		return (ShellExecutableResult){ .is_ok = false,
+			                            .data = { .error = {
+			                                          .type = ShellExecutableErrorTypeGeneric,
+			                                      } } };
 	}
 
 	PathDirectories directories = path_res.data.directories;
@@ -110,16 +119,95 @@ tstr get_executable_path(tstr_view name) {
 		const PathDirectory* const arg = TVEC_GET_AT(PathDirectory, &directories, i);
 		ASSERT(arg != NULL);
 
-		tstr executable_path = path_dir_get_executable(arg->path, name);
+		ShellExecutableResult executable_result =
+		    path_dir_get_executable_from_parts(arg->path, name);
 
-		if(!tstr_is_null(&executable_path)) {
+		if(executable_result.is_ok) {
 			free_path_directories(&directories);
-			return executable_path;
+			return executable_result;
 		}
 	}
 
 	free_path_directories(&directories);
-	return tstr_null();
+
+	return (ShellExecutableResult){ .is_ok = false,
+		                            .data = { .error = {
+		                                          .type = ShellExecutableErrorTypeNotFound,
+		                                      } } };
+}
+
+static ShellExecutableResult get_executable_path_by_path(tstr_view name, const ShellHandle shell) {
+	tstr_view cwd = shell.function.get_current_working_directory(shell.context);
+
+	if(cwd.len == 0) {
+		return (ShellExecutableResult){ .is_ok = false,
+			                            .data = { .error = {
+			                                          .type = ShellExecutableErrorTypeGeneric,
+			                                      } } };
+	}
+
+	tstr resolved_path = path_resolve_to_absolute(cwd, name);
+
+	if(tstr_is_null(&resolved_path)) {
+		return (ShellExecutableResult){ .is_ok = false,
+			                            .data = { .error = {
+			                                          .type = ShellExecutableErrorTypeGeneric,
+			                                      } } };
+	}
+
+	if(!path_is_absolute(tstr_as_view(&resolved_path))) {
+		tstr_free(&resolved_path);
+		return (ShellExecutableResult){ .is_ok = false,
+			                            .data = { .error = {
+			                                          .type = ShellExecutableErrorTypeGeneric,
+			                                      } } };
+	}
+
+	tstr path = path_normalize(tstr_as_view(&resolved_path));
+
+	tstr_free(&resolved_path);
+
+	if(tstr_is_null(&path)) {
+		return (ShellExecutableResult){ .is_ok = false,
+			                            .data = { .error = {
+			                                          .type = ShellExecutableErrorTypeGeneric,
+			                                      } } };
+	}
+
+	if(!path_is_absolute(tstr_as_view(&path))) {
+		tstr_free(&path);
+		return (ShellExecutableResult){ .is_ok = false,
+			                            .data = { .error = {
+			                                          .type = ShellExecutableErrorTypeGeneric,
+			                                      } } };
+	}
+
+	ShellExecutableResult executable_result = path_dir_get_executable(tstr_as_view(&path));
+
+	tstr_free(&path);
+
+	return executable_result;
+}
+
+ShellExecutableResult get_executable_path(tstr_view name, const ShellHandle shell) {
+
+	if(name.len == 0) {
+		return (ShellExecutableResult){ .is_ok = false,
+			                            .data = { .error = {
+			                                          .type = ShellExecutableErrorTypeGeneric,
+			                                      } } };
+	}
+
+	const char starting_char = name.data[0];
+
+	if(starting_char == '.' || starting_char == '/' || starting_char == '~') {
+
+		// if we have an absolute or relative path, resolve it as path and not via PATH
+
+		return get_executable_path_by_path(name, shell);
+	}
+
+	return get_executable_path_by_name(name);
 }
 
 static void free_execv_args(char** const args) {
