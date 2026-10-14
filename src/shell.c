@@ -2843,7 +2843,7 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 
 	if(is_docker) {
 		g_is_docker = true;
-		fprintf(stderr, "TRYING TO DO DOCKER\n");
+		//fprintf(stderr, "TRYING TO DO DOCKER\n");
 	}
 
 	RLCompletionResult array =
