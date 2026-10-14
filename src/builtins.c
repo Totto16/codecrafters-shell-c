@@ -1148,7 +1148,9 @@ static ExitCode jobs_invoke(shell_dynamic_args args, const ShellHandle shell, co
 		                    : info.type == ShellJobTypeRecent2 ? '-'
 		                                                       : ' ';
 
-		const char* status = info.run_state == ShellJobRunStateRunning ? "Running" : "TODO";
+		const char* status = info.run_state == ShellJobRunStateRunning ? "Running"
+		                     : info.run_state == ShellJobRunStateDone  ? "Done"
+		                                                               : "Unknown";
 
 		int res = SHELL_FPINTF(stdout, "[%zu]%c %-*s " TSTR_FMT "\n", (i + 1), marker, 24, status,
 		                       TSV_FMT_ARGS(info.command));
@@ -1157,6 +1159,8 @@ static ExitCode jobs_invoke(shell_dynamic_args args, const ShellHandle shell, co
 			RETURN_IO_ERROR("jobs");
 		}
 	}
+
+	RETURNS_VOID shell.function.reap_jobs(shell.context);
 
 	return ExitCodeSuccess;
 }

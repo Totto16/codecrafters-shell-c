@@ -1,3 +1,13 @@
+#ifndef _GNU_SOURCE
+	#define _GNU_SOURCE
+	#define SHELL_NEEDED_GNU_SOURCE
+#endif
+#include <pthread.h> // for pthread_tryjoin_np
+#ifdef SHELL_NEEDED_GNU_SOURCE
+	#undef SHELL_NEEDED_GNU_SOURCE
+	#undef _GNU_SOURCE
+#endif
+
 #include "./shell.h"
 
 #include <dirent.h>
@@ -95,6 +105,7 @@ typedef struct {
 typedef struct {
 	ShellCommandSynchronization sync;
 	tstr command;
+	bool finished;
 } ShellJobState;
 
 TVEC_DEFINE_VEC_TYPE(ShellJobState)
@@ -208,6 +219,101 @@ static tstr shell_instance_append_history_to_file(ShellInstanceState* state, con
 
 static void shell_global_exit(ShellState* state, ExitCode code) {
 	shell_exit(&(state->global), code);
+}
+
+TRTTI_DECLARE_TYPE_AS_SUPPORTED(ShellSubShellThreadState)
+
+static void free_shell_history(ShellHistory* history) {
+
+	for(size_t i = 0; i < TVEC_LENGTH(tstr, history->array); ++i) {
+
+		tstr* const arg = TVEC_GET_AT_MUT(tstr, &(history->array), i);
+		ASSERT(arg != NULL);
+
+		tstr_free(arg);
+	}
+
+	TVEC_FREE(tstr, &(history->array));
+}
+
+static void free_shell_instance_state(ShellInstanceState* state) {
+
+	tstr_free(&(state->cwd));
+
+	free_shell_history(&(state->history));
+	tstr_free(&(state->history_state.histfile));
+}
+
+static void free_sub_shell_thread_state(ShellSubShellThreadState* state) {
+
+	free_shell_instance_state(&state->state.instance);
+
+	TRTTI_DESTROY(ShellSubShellThreadState, state);
+}
+
+static void free_shell_job_state(ShellJobState* arg) {
+	// TODO: close this process with kill
+
+	tstr_free(&arg->command);
+
+	switch(arg->sync.type) {
+		case ShellCommandSynchronizationTypeError: {
+			tstr_free(&arg->sync.data.error);
+			break;
+		}
+		case ShellCommandSynchronizationTypeThread: {
+			ShellCommandSynchronizationThread* const thread = &(arg->sync.data.thread);
+
+			int res = pthread_kill(thread->thread_id, SIGKILL);
+
+			if(res != 0) {
+				// a error occurred, we just ignore it, but we don't use join
+			} else {
+
+				void* return_value = NULL;
+				res = pthread_join(thread->thread_id, &return_value);
+
+				if(res != 0) {
+					// ignore error
+				} else {
+
+					// only when the process exited,
+					RETURNS_VOID free_sub_shell_thread_state(thread->state);
+				}
+			}
+
+			break;
+		}
+		case ShellCommandSynchronizationTypeProcess: {
+			ShellCommandSynchronizationProcess* const process = &(arg->sync.data.process);
+
+			int res = kill(process->handle.child_pid, SIGKILL);
+
+			int status = 0;
+			res = waitpid(process->handle.child_pid, &status, 0);
+			if(res < 0) {
+				// ignore error
+			}
+
+			break;
+		}
+		default: {
+			break;
+		}
+	}
+}
+
+static void free_shell_jobs_state(ShellJobsState* states) {
+
+	for(size_t i = 0; i < TVEC_LENGTH(ShellJobState, states->array); ++i) {
+
+		ShellJobState* arg = TVEC_GET_AT_MUT(ShellJobState, &(states->array), i);
+		ASSERT(arg != NULL);
+
+		free_shell_job_state(arg);
+	}
+
+	TVEC_FREE(ShellJobState, &(states->array));
 }
 
 static void shell_virtual_fn_sync_exit(shell_virtual_context ctx, const ExitData* data) {
@@ -411,7 +517,7 @@ static ShellJobInfoResult shell_virtual_fn_sync_get_job(shell_virtual_context ct
 
 	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
 
-	const ShellJobState* const arg = TVEC_GET_AT(ShellJobState, &(state->jobs_state.array), idx);
+	ShellJobState* const arg = TVEC_GET_AT_MUT(ShellJobState, &(state->jobs_state.array), idx);
 	if(arg == NULL) {
 		return (ShellJobInfoResult){ .is_ok = false,
 			                         .data = { .error = TSTR_LIT("idx out of bounds") } };
@@ -436,25 +542,50 @@ static ShellJobInfoResult shell_virtual_fn_sync_get_job(shell_virtual_context ct
 		case ShellCommandSynchronizationTypeThread: {
 			const ShellCommandSynchronizationThread* const thread = &(arg->sync.data.thread);
 
-			// todo get thread state
-
 			info.id = thread->thread_id;
-			info.run_state = ShellJobRunStateRunning;
+
+			void* return_value = NULL;
+			int res = pthread_tryjoin_np(thread->thread_id, &return_value);
+			if(res != 0) {
+				if(res == EBUSY) {
+					info.run_state = ShellJobRunStateRunning;
+					break;
+				} else {
+
+					return (ShellJobInfoResult){
+						.is_ok = false,
+						.data = { .error = TSTR_LIT("[INTERNAL] calling pthread_tryjoin_np "
+						                            "on already finished pthread") }
+					};
+				}
+			}
+
+			info.run_state = ShellJobRunStateDone;
+			arg->finished = true;
 
 			break;
 		}
 		case ShellCommandSynchronizationTypeProcess: {
 			const ShellCommandSynchronizationProcess* const process = &(arg->sync.data.process);
 
+			info.id = (size_t)process->handle.child_pid;
+
 			int status = 0;
 			int res = waitpid(process->handle.child_pid, &status, WNOHANG);
 			if(res < 0) {
-				return (ShellJobInfoResult){ .is_ok = false,
-					                         .data = { .error = TSTR_LIT("internal error") } };
+				return (ShellJobInfoResult){
+					.is_ok = false,
+					.data = { .error = TSTR_LIT(
+					              "[INTERNAL] calling waitpid on already exited process") }
+				};
 			}
 
-			info.id = (size_t)process->handle.child_pid;
-			info.run_state = res == 0 ? ShellJobRunStateRunning : ShellJobRunStateTerminated;
+			if(res == 0) {
+				info.run_state = ShellJobRunStateRunning;
+			} else {
+				info.run_state = ShellJobRunStateDone;
+				arg->finished = true;
+			}
 
 			break;
 		}
@@ -464,6 +595,29 @@ static ShellJobInfoResult shell_virtual_fn_sync_get_job(shell_virtual_context ct
 	}
 
 	return (ShellJobInfoResult){ .is_ok = true, .data = { .ok = info } };
+}
+
+static void shell_global_reap_jobs_impl_only_removal(ShellState* state) {
+	for(size_t i = 0; i < TVEC_LENGTH(ShellJobState, state->jobs_state.array);) {
+
+		ShellJobState* arg = TVEC_GET_AT_MUT(ShellJobState, &(state->jobs_state.array), i);
+		ASSERT(arg != NULL);
+
+		// we just check the states, this reap doesn't check teh sync status
+		if(arg->finished) {
+			free_shell_job_state(arg);
+			TVEC_REMOVE(ShellJobState, &(state->jobs_state.array), i);
+		} else {
+			++i;
+		}
+	}
+}
+
+static void shell_virtual_fn_sync_reap_jobs(shell_virtual_context ctx) {
+
+	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
+
+	shell_global_reap_jobs_impl_only_removal(state);
 }
 
 static tstr_view shell_virtual_fn_sync_get_current_working_directory(shell_virtual_context ctx) {
@@ -513,6 +667,7 @@ static const ShellVirtualFunctions g_shell_functions_synchronous = {
 	.remove_completion = shell_virtual_fn_sync_remove_completion,
 	.get_jobs_size = shell_virtual_fn_sync_get_jobs_size,
 	.get_job = shell_virtual_fn_sync_get_job,
+	.reap_jobs = shell_virtual_fn_sync_reap_jobs,
 };
 
 #define SHELL_HANDLE_SYNCHRONOUS(ctx) \
@@ -647,6 +802,14 @@ static ShellJobInfoResult shell_virtual_fn_subshell_get_job(shell_virtual_contex
 		                         .data = { .error = TSTR_LIT("not supported in subshells") } };
 }
 
+static void shell_virtual_fn_subshell_reap_jobs(shell_virtual_context ctx) {
+
+	UNUSED(ctx);
+
+	// Not supported in subshells yet
+	// but it's just a noop
+}
+
 static tstr_view
 shell_virtual_fn_subshell_get_current_working_directory(shell_virtual_context ctx) {
 
@@ -695,6 +858,7 @@ static const ShellVirtualFunctions g_shell_functions_subshell = {
 	.remove_completion = shell_virtual_fn_subshell_remove_completion,
 	.get_jobs_size = shell_virtual_fn_subshell_get_jobs_size,
 	.get_job = shell_virtual_fn_subshell_get_job,
+	.reap_jobs = shell_virtual_fn_subshell_reap_jobs,
 };
 
 #define SHELL_HANDLE_SUBSHELL(ctx) { .context = (ctx), .function = g_shell_functions_subshell };
@@ -840,8 +1004,6 @@ static void shell_execute_command_synchronous(ShellState* state,
 	}
 }
 
-TRTTI_DECLARE_TYPE_AS_SUPPORTED(ShellSubShellThreadState)
-
 TRTTI_IMPLEMENTATION_FOR_TYPE(ShellSubShellThreadState)
 
 static void* shell_subshell_builtin_thread_entry(RTTIAnnotatedPtr arg) {
@@ -861,34 +1023,6 @@ static void* shell_subshell_builtin_thread_entry(RTTIAnnotatedPtr arg) {
 
 	state->builtin->command.validator.free(state->builtin->args);
 	return NULL;
-}
-
-static void free_shell_history(ShellHistory* history) {
-
-	for(size_t i = 0; i < TVEC_LENGTH(tstr, history->array); ++i) {
-
-		tstr* const arg = TVEC_GET_AT_MUT(tstr, &(history->array), i);
-		ASSERT(arg != NULL);
-
-		tstr_free(arg);
-	}
-
-	TVEC_FREE(tstr, &(history->array));
-}
-
-static void free_shell_instance_state(ShellInstanceState* state) {
-
-	tstr_free(&(state->cwd));
-
-	free_shell_history(&(state->history));
-	tstr_free(&(state->history_state.histfile));
-}
-
-static void free_sub_shell_thread_state(ShellSubShellThreadState* state) {
-
-	free_shell_instance_state(&state->state.instance);
-
-	TRTTI_DESTROY(ShellSubShellThreadState, state);
 }
 
 static void shell_execute_command_in_subshell(const ShellState* state,
@@ -1658,71 +1792,6 @@ static void free_shell_completion_state(ShellCompletionState* completion_state) 
 	}
 
 	free_completion_storage(&(completion_state->storage));
-}
-
-static void free_shell_job_state(ShellJobState* arg) {
-	// TODO: close this process with kill
-
-	tstr_free(&arg->command);
-
-	switch(arg->sync.type) {
-		case ShellCommandSynchronizationTypeError: {
-			tstr_free(&arg->sync.data.error);
-			break;
-		}
-		case ShellCommandSynchronizationTypeThread: {
-			ShellCommandSynchronizationThread* const thread = &(arg->sync.data.thread);
-
-			int res = pthread_kill(thread->thread_id, SIGKILL);
-
-			if(res != 0) {
-				// a error occurred, we just ignore it, but we don't use join
-			} else {
-
-				void* return_value = NULL;
-				res = pthread_join(thread->thread_id, &return_value);
-
-				if(res != 0) {
-					// ignore error
-				} else {
-
-					// only when the process exited,
-					RETURNS_VOID free_sub_shell_thread_state(thread->state);
-				}
-			}
-
-			break;
-		}
-		case ShellCommandSynchronizationTypeProcess: {
-			ShellCommandSynchronizationProcess* const process = &(arg->sync.data.process);
-
-			int res = kill(process->handle.child_pid, SIGKILL);
-
-			int status = 0;
-			res = waitpid(process->handle.child_pid, &status, 0);
-			if(res < 0) {
-				// ignore error
-			}
-
-			break;
-		}
-		default: {
-			break;
-		}
-	}
-}
-
-static void free_shell_jobs_state(ShellJobsState* states) {
-
-	for(size_t i = 0; i < TVEC_LENGTH(ShellJobState, states->array); ++i) {
-
-		ShellJobState* arg = TVEC_GET_AT_MUT(ShellJobState, &(states->array), i);
-		ASSERT(arg != NULL);
-
-		free_shell_job_state(arg);
-	}
-
-	TVEC_FREE(ShellJobState, &(states->array));
 }
 
 static void free_shell_state(ShellState* state) {

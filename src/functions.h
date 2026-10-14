@@ -68,7 +68,7 @@ typedef size_t (*shell_fn_get_jobs_size)(shell_virtual_context ctx);
 
 typedef enum : uint8_t {
 	ShellJobRunStateRunning = 0,
-	ShellJobRunStateTerminated,
+	ShellJobRunStateDone,
 } ShellJobRunState;
 
 typedef enum : uint8_t {
@@ -94,6 +94,8 @@ typedef struct {
 
 typedef ShellJobInfoResult (*shell_fn_get_job)(shell_virtual_context ctx, size_t idx);
 
+typedef void (*shell_fn_reap_jobs)(shell_virtual_context ctx);
+
 typedef struct {
 	shell_fn_get_current_working_directory get_current_working_directory;
 	shell_fn_set_current_working_directory set_current_working_directory;
@@ -106,6 +108,7 @@ typedef struct {
 	shell_fn_remove_completion remove_completion;
 	shell_fn_get_jobs_size get_jobs_size;
 	shell_fn_get_job get_job;
+	shell_fn_reap_jobs reap_jobs;
 } ShellVirtualFunctions;
 
 typedef struct {
