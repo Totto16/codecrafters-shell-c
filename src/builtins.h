@@ -62,6 +62,11 @@ typedef struct {
 	ShellRedirectLocation stderr;
 } ShellRedirectSettings;
 
+typedef struct {
+	ShellRedirectSettings redirect;
+	bool is_background;
+} ShellProgramSettings;
+
 NODISCARD bool shell_redirect_is_set(const ShellRedirectLocation* location);
 
 NODISCARD int shell_redirect_open(const ShellRedirectLocation* location);

@@ -58,12 +58,60 @@ typedef struct {
 } ShellEnvSettings;
 
 typedef struct {
+	ShellInstanceState instance;
+} ShellSubShellState;
+
+typedef struct {
+	ShellSubShellState state;
+	const ShellCommandBuiltin* builtin;
+	const ShellRedirectSettings* settings;
+	const ShellPipeState* pipe_state;
+} ShellSubShellThreadState;
+
+typedef struct {
+	pthread_t thread_id;
+	ShellSubShellThreadState* state;
+} ShellCommandSynchronizationThread;
+
+typedef struct {
+	ShellExecuteAsyncHandle handle;
+} ShellCommandSynchronizationProcess;
+
+typedef enum : uint8_t {
+	ShellCommandSynchronizationTypeError = 0,
+	ShellCommandSynchronizationTypeThread,
+	ShellCommandSynchronizationTypeProcess,
+} ShellCommandSynchronizationType;
+
+typedef struct {
+	ShellCommandSynchronizationType type;
+	union {
+		tstr error;
+		ShellCommandSynchronizationThread thread;
+		ShellCommandSynchronizationProcess process;
+	} data;
+} ShellCommandSynchronization;
+
+typedef struct {
+	ShellCommandSynchronization sync;
+} ShellJobState;
+
+TVEC_DEFINE_VEC_TYPE(ShellJobState)
+
+typedef TVEC_TYPENAME(ShellJobState) ShellJobStateArray;
+
+typedef struct {
+	ShellJobStateArray array;
+} ShellJobsState;
+
+typedef struct {
 	CommandState command_state;
 	const bool interactive;
 	ShellInputState input_state;
 	ShellInstanceState global;
 	ShellCompletionState completion_state;
 	ShellEnvSettings settings;
+	ShellJobsState jobs_state;
 } ShellState;
 
 TRTTI_DECLARE_TYPE_AS_SUPPORTED(ShellState)
@@ -401,10 +449,6 @@ static const ShellVirtualFunctions g_shell_functions_synchronous = {
 #define SHELL_HANDLE_SYNCHRONOUS(ctx) \
 	{ .context = (ctx), .function = g_shell_functions_synchronous };
 
-typedef struct {
-	ShellInstanceState instance;
-} ShellSubShellState;
-
 TRTTI_DECLARE_TYPE_AS_SUPPORTED(ShellSubShellState)
 
 TRTTI_IMPLEMENTATION_FOR_TYPE(ShellSubShellState)
@@ -630,8 +674,8 @@ static void set_command_exit_code(ShellState* state, ExitCode code) {
 	state->command_state.exit_code = code;
 }
 
-static void shell_execute_command_synchronous(const ShellCommand* const command,
-                                              ShellState* state) {
+static void shell_execute_command_synchronous(ShellState* state,
+                                              const ShellCommand* const command) {
 	switch(command->type) {
 		case ShellCommandTypeBuiltin: {
 			const ShellCommandBuiltin* builtin = &(command->data.builtin);
@@ -640,7 +684,7 @@ static void shell_execute_command_synchronous(const ShellCommand* const command,
 			ShellHandle shell_handle = SHELL_HANDLE_SYNCHRONOUS(state_rtti);
 
 			ExitCode command_exit_code = invoke_shell_builtin_in_current_context(
-			    builtin, shell_handle, &(command->settings));
+			    builtin, shell_handle, &(command->settings.redirect));
 			set_command_exit_code(state, command_exit_code);
 
 			builtin->command.validator.free(builtin->args);
@@ -650,8 +694,9 @@ static void shell_execute_command_synchronous(const ShellCommand* const command,
 		case ShellCommandTypeExecutable: {
 			const ShellCommandExecutable executable = command->data.executable;
 
-			ShellExecuteSyncResult execute_res = invoke_executable_synchronous(
-			    &executable.path, &executable.invoke_name, &(command->args), &(command->settings));
+			ShellExecuteSyncResult execute_res =
+			    invoke_executable_synchronous(&executable.path, &executable.invoke_name,
+			                                  &(command->args), &(command->settings.redirect));
 
 			switch(execute_res.type) {
 				case ShellExecuteSyncResultTypeExit: {
@@ -695,13 +740,6 @@ static void shell_execute_command_synchronous(const ShellCommand* const command,
 	}
 }
 
-typedef struct {
-	ShellSubShellState state;
-	const ShellCommandBuiltin* builtin;
-	const ShellRedirectSettings* settings;
-	const ShellPipeState* pipe_state;
-} ShellSubShellThreadState;
-
 TRTTI_DECLARE_TYPE_AS_SUPPORTED(ShellSubShellThreadState)
 
 TRTTI_IMPLEMENTATION_FOR_TYPE(ShellSubShellThreadState)
@@ -724,30 +762,6 @@ static void* shell_subshell_builtin_thread_entry(RTTIAnnotatedPtr arg) {
 	state->builtin->command.validator.free(state->builtin->args);
 	return NULL;
 }
-
-typedef enum : uint8_t {
-	ShellCommandSynchronizationTypeError = 0,
-	ShellCommandSynchronizationTypeThread,
-	ShellCommandSynchronizationTypeProcess,
-} ShellCommandSynchronizationType;
-
-typedef struct {
-	pthread_t thread_id;
-	ShellSubShellThreadState* state;
-} ShellCommandSynchronizationThread;
-
-typedef struct {
-	ShellExecuteAsyncHandle handle;
-} ShellCommandSynchronizationProcess;
-
-typedef struct {
-	ShellCommandSynchronizationType type;
-	union {
-		tstr error;
-		ShellCommandSynchronizationThread thread;
-		ShellCommandSynchronizationProcess process;
-	} data;
-} ShellCommandSynchronization;
 
 static void free_shell_history(ShellHistory* history) {
 
@@ -777,8 +791,9 @@ static void free_sub_shell_thread_state(ShellSubShellThreadState* state) {
 	TRTTI_DESTROY(ShellSubShellThreadState, state);
 }
 
-static void shell_execute_command_in_subshell(const ShellCommand* const command,
-                                              const ShellState* state,
+static void shell_execute_command_in_subshell(const ShellState* state,
+                                              const ShellCommand* const command,
+
                                               const ShellPipeState* pipe_state,
                                               ShellCommandSynchronization* result) {
 	switch(command->type) {
@@ -816,7 +831,7 @@ static void shell_execute_command_in_subshell(const ShellCommand* const command,
                                                },
                                        },
                                    .builtin = builtin,
-                                   .settings = &(command->settings),
+                                   .settings = &(command->settings.redirect),
                                    .pipe_state = pipe_state};
 
 			// TODO(Totto): should we read history state for subshells too?
@@ -845,7 +860,7 @@ static void shell_execute_command_in_subshell(const ShellCommand* const command,
 
 			ShellExecuteAsyncResult res =
 			    invoke_executable_async(&executable.path, &executable.invoke_name, &(command->args),
-			                            &(command->settings), pipe_state);
+			                            &(command->settings.redirect), pipe_state);
 
 			if(!res.is_ok) {
 				*result =
@@ -863,6 +878,65 @@ static void shell_execute_command_in_subshell(const ShellCommand* const command,
 			UNREACHABLE();
 			break;
 		}
+	}
+}
+
+static void shell_execute_command_as_background_job(ShellState* state,
+                                                    const ShellCommand* const command) {
+
+	ShellPipeInfoArray pipe_info_array = TVEC_EMPTY(ShellPipeInfo);
+
+	const ShellPipeState pipe_state = { .array = &pipe_info_array,
+		                                .close = { .start = 0, .end = 0 },
+		                                .settings = {
+		                                    .stdin = { .is_pipe = false, .idx = 0 },
+		                                    .stdout = { .is_pipe = false, .idx = 0 },
+		                                } };
+	ShellCommandSynchronization sync = { .type = ShellCommandSynchronizationTypeError,
+		                                 .data = { .error = TSTR_LIT("Not filled yet") } };
+
+	RETURNS_VOID shell_execute_command_in_subshell(state, command, &pipe_state, &sync);
+
+	TVEC_FREE(ShellPipeInfo, &pipe_info_array);
+
+	if(sync.type == ShellCommandSynchronizationTypeError) {
+		RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+		RETURNS_VOID shell_print_error("[INTERNAL]: " TSTR_FMT "\n",
+		                               TSTR_FMT_ARGS(sync.data.error));
+		tstr_free(&(sync.data.error));
+		return;
+	}
+
+	ShellJobState job = { .sync = sync };
+
+	TvecResult res = TVEC_PUSH(ShellJobState, &(state->jobs_state.array), job);
+
+	if(res != TvecResultOk) { // NOLINT(readability-implicit-bool-conversion)
+		RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+		RETURNS_VOID shell_print_error("[INTERNAL] can't append to jobs array\n");
+
+		return;
+	}
+
+	const size_t idx = TVEC_LENGTH(ShellJobState, state->jobs_state.array);
+
+	int fres = 0;
+	if(sync.type == ShellCommandSynchronizationTypeProcess) {
+		fres = fprintf(stdout, "[%zu] %d\n", idx, sync.data.process.handle.child_pid);
+
+	} else if(sync.type == ShellCommandSynchronizationTypeThread) {
+		fres = fprintf(stdout, "[%zu] %zu\n", idx, sync.data.thread.thread_id);
+	} else {
+	}
+
+	if(fres < 0) {
+		RETURNS_VOID shell_global_exit(state, ExitCodeIOError);
+
+		RETURNS_VOID shell_print_error("[INTERNAL] output error\n");
+
+		return;
 	}
 }
 
@@ -902,7 +976,12 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 		const ShellCommand* const command = TVEC_GET_AT(ShellCommand, &(pipeline->commands), 0);
 		ASSERT(command != NULL);
 
-		RETURNS_VOID shell_execute_command_synchronous(command, state);
+		if(command->settings.is_background) {
+			RETURNS_VOID shell_execute_command_as_background_job(state, command);
+		} else {
+			RETURNS_VOID shell_execute_command_synchronous(state, command);
+		}
+
 		return;
 	}
 
@@ -1018,9 +1097,19 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 		const ShellPipeState* const pipe_state = TVEC_GET_AT(ShellPipeState, &pipe_states, i);
 		ASSERT(pipe_state != NULL);
 
+		if(command->settings.is_background) {
+			// commands in piplines can't be background jobs yet
+			RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
+
+			RETURNS_VOID shell_print_error(
+			    "[INTERNAL]: commands in piplines can't be background jobs yet\n");
+
+			goto pipeline_cleanup;
+		}
+
 		// if we have a executable, launch it with the pipe settings and get the pid
 		// for a builtin start a new thread and get the thread_id
-		RETURNS_VOID shell_execute_command_in_subshell(command, state, pipe_state, sync);
+		RETURNS_VOID shell_execute_command_in_subshell(state, command, pipe_state, sync);
 
 		if(sync->type == ShellCommandSynchronizationTypeError) {
 			RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
@@ -1380,6 +1469,7 @@ static ShellSetupResult shell_setup_repl(const char* const program_name) {
 			.completion_trie = NULL,
 			.storage={ .map = TMAP_EMPTY(ShellCompletionHashMap) },
 		},
+		.jobs_state = {.array = TVEC_EMPTY(ShellJobState)},
 		.settings = { .debug = false }
 	};
 
@@ -1443,6 +1533,25 @@ static void free_shell_completion_state(ShellCompletionState* completion_state) 
 	free_completion_storage(&(completion_state->storage));
 }
 
+static void free_shell_job_state(ShellJobState* arg) {
+	// TODO: close this process with kill
+
+	UNUSED(arg);
+}
+
+static void free_shell_jobs_state(ShellJobsState* states) {
+
+	for(size_t i = 0; i < TVEC_LENGTH(ShellJobState, states->array); ++i) {
+
+		ShellJobState* arg = TVEC_GET_AT_MUT(ShellJobState, &(states->array), i);
+		ASSERT(arg != NULL);
+
+		free_shell_job_state(arg);
+	}
+
+	TVEC_FREE(ShellJobState, &(states->array));
+}
+
 static void free_shell_state(ShellState* state) {
 
 	free_shell_instance_state(&(state->global));
@@ -1455,6 +1564,8 @@ static void free_shell_state(ShellState* state) {
 	free_shell_completion_state(&(state->completion_state));
 
 	free_input_history(state);
+
+	free_shell_jobs_state(&(state->jobs_state));
 }
 
 #if SHELL_USE_EDIT_LIBRARY == 0
@@ -2537,3 +2648,5 @@ TMAP_HASH_FUNC_SIG(tstr, TStr) {
 TMAP_EQ_FUNC_SIG(tstr, TStr) {
 	return tstr_eq(&key1, &key2);
 }
+
+TVEC_IMPLEMENT_VEC_TYPE(ShellJobState)

@@ -23,7 +23,7 @@ typedef struct {
 	} data;
 	ShellArgument arg0;
 	ShellArguments args;
-	ShellRedirectSettings settings;
+	ShellProgramSettings settings;
 } ShellCommand;
 
 TVEC_DEFINE_VEC_TYPE(ShellCommand)

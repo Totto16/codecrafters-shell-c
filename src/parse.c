@@ -10,7 +10,7 @@ TVEC_IMPLEMENT_VEC_TYPE(ShellCommandNotFound)
 typedef struct {
 	ShellArgument program;
 	ShellArguments args;
-	ShellRedirectSettings settings;
+	ShellProgramSettings settings;
 } ParsedProgram;
 
 TVEC_DEFINE_AND_IMPLEMENT_VEC_TYPE(ParsedProgram)
@@ -359,12 +359,14 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 		return (ParsedPipelineResult){ .is_ok = true, .data = { .pipeline = pipeline } };
 	}
 
-	ParsedProgram current_program = {
-		.program = { .parsed = tstr_null(), .original = TSTR_TSV("") },
-		.args = TVEC_EMPTY(ShellArgument),
-		.settings = { .stdout = { .type = ShellRedirectLocationTypeNone },
-		              .stderr = { .type = ShellRedirectLocationTypeNone } }
-	};
+	ParsedProgram
+	    current_program = { .program = { .parsed = tstr_null(), .original = TSTR_TSV("") },
+		                    .args = TVEC_EMPTY(ShellArgument),
+		                    .settings = {
+		                        .redirect = { .stdout = { .type = ShellRedirectLocationTypeNone },
+		                                      .stderr = { .type = ShellRedirectLocationTypeNone } },
+		                        .is_background = false,
+		                    } };
 
 	for(size_t i = 0; i < TVEC_LENGTH(ShellArgument, arguments); ++i) {
 
@@ -379,16 +381,16 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 		bool background = false;
 
 		if(tstr_view_eq(arg->original, ">") || tstr_view_eq(arg->original, "1>")) {
-			location = &current_program.settings.stdout;
+			location = &current_program.settings.redirect.stdout;
 			append = false;
 		} else if(tstr_view_eq(arg->original, "2>")) {
-			location = &current_program.settings.stderr;
+			location = &current_program.settings.redirect.stderr;
 			append = false;
 		} else if(tstr_view_eq(arg->original, ">>") || tstr_view_eq(arg->original, "1>>")) {
-			location = &current_program.settings.stdout;
+			location = &current_program.settings.redirect.stdout;
 			append = true;
 		} else if(tstr_view_eq(arg->original, "2>>")) {
-			location = &current_program.settings.stderr;
+			location = &current_program.settings.redirect.stderr;
 			append = true;
 		} else if(tstr_view_eq(arg->original, "|")) {
 			pipe = true;
@@ -400,6 +402,15 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 		UNUSED(background);
 
 		if(location != NULL) {
+
+			// assert that we have a valid program before adding a redirection
+
+			if(tstr_is_null(&(current_program.program.parsed))) {
+				return (ParsedPipelineResult){
+					.is_ok = false,
+					.data = { .error = TSTR_LIT("a redirection needs a program to work on") }
+				};
+			}
 
 			// check that we only have one redirection per program per output stream
 			if(shell_redirect_is_set(location)) {
@@ -477,6 +488,15 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 					                                         "follow another pipeline") } };
 			}
 
+			// we don't allow background jobs in a pipline
+			if(current_program.settings.is_background) {
+				return (ParsedPipelineResult){
+					.is_ok = false,
+					.data = { .error =
+					              TSTR_LIT("a pipeline doesn't allow a background job in it") }
+				};
+			}
+
 			TvecResult res = TVEC_PUSH(ParsedProgram, &(pipeline.programs), current_program);
 
 			if(res != TvecResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/
@@ -492,13 +512,40 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 			free_shell_argument(arg);
 
 			// we moved this out
-			current_program = (ParsedProgram){
-				.program = { .parsed = tstr_null(), .original = TSTR_TSV("") },
-				.args = TVEC_EMPTY(ShellArgument),
-				.settings = { .stdout = { .type = ShellRedirectLocationTypeNone, .data = {} },
-				              .stderr = { .type = ShellRedirectLocationTypeNone, .data = {} } }
-			};
+			current_program =
+			    (ParsedProgram){ .program = { .parsed = tstr_null(), .original = TSTR_TSV("") },
+				                 .args = TVEC_EMPTY(ShellArgument),
+				                 .settings = {
+				                     .redirect = { .stdout = { .type =
+				                                                   ShellRedirectLocationTypeNone,
+				                                               .data = {} },
+				                                   .stderr = { .type =
+				                                                   ShellRedirectLocationTypeNone,
+				                                               .data = {} } },
+				                     .is_background = false,
+				                 } };
 
+		} else if(background) {
+
+			// assert that we have a valid program before setting ti to background
+
+			if(tstr_is_null(&(current_program.program.parsed))) {
+				return (ParsedPipelineResult){
+					.is_ok = false,
+					.data = { .error = TSTR_LIT("a background jobs needs a program to work on") }
+				};
+			}
+
+			// check that we  haven't set this already
+			if(current_program.settings.is_background) {
+				return (ParsedPipelineResult){
+					.is_ok = false,
+					.data = { .error = TSTR_LIT(
+					              "can only set a program to be a background job once") }
+				};
+			}
+
+			current_program.settings.is_background = true;
 		} else {
 			// append the argument to the end
 
@@ -540,13 +587,19 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 			};
 		}
 
+		// here we allow the program to be a background job, as it is technically not a pipline
+
 		// we moved this out
-		current_program = (ParsedProgram){
-			.program = { .parsed = tstr_null(), .original = TSTR_TSV("") },
-			.args = TVEC_EMPTY(ShellArgument),
-			.settings = { .stdout = { .type = ShellRedirectLocationTypeNone, .data = {} },
-			              .stderr = { .type = ShellRedirectLocationTypeNone, .data = {} } }
-		};
+		current_program =
+		    (ParsedProgram){ .program = { .parsed = tstr_null(), .original = TSTR_TSV("") },
+			                 .args = TVEC_EMPTY(ShellArgument),
+			                 .settings = {
+			                     .redirect = { .stdout = { .type = ShellRedirectLocationTypeNone,
+			                                               .data = {} },
+			                                   .stderr = { .type = ShellRedirectLocationTypeNone,
+			                                               .data = {} } },
+			                     .is_background = false,
+			                 } };
 	}
 
 	return (ParsedPipelineResult){ .is_ok = true, .data = { .pipeline = pipeline } };
@@ -559,6 +612,10 @@ void free_shell_argument(ShellArgument* arg) {
 static void free_shell_redirect_settings(ShellRedirectSettings* settings) {
 	free_shell_redirect_location(&(settings->stdout));
 	free_shell_redirect_location(&(settings->stderr));
+}
+
+static void free_shell_program_settings(ShellProgramSettings* settings) {
+	free_shell_redirect_settings(&(settings->redirect));
 }
 
 void free_shell_arguments(ShellArguments* args) {
@@ -577,7 +634,7 @@ void free_shell_arguments(ShellArguments* args) {
 static void free_parsed_program(ParsedProgram* program) {
 	free_shell_arguments(&(program->args));
 	free_shell_argument(&(program->program));
-	free_shell_redirect_settings(&(program->settings));
+	free_shell_program_settings(&(program->settings));
 }
 
 static void free_shell_command_executable(ShellCommandExecutable* executable) {
@@ -588,7 +645,7 @@ static void free_shell_command_executable(ShellCommandExecutable* executable) {
 static void free_shell_command(ShellCommand* command) {
 	free_shell_argument(&(command->arg0));
 	free_shell_arguments(&(command->args));
-	free_shell_redirect_settings(&(command->settings));
+	free_shell_program_settings(&(command->settings));
 
 	switch(command->type) {
 		case ShellCommandTypeBuiltin: {
@@ -711,7 +768,7 @@ static ShellProcessProgramResult shell_process_program(ParsedProgram* program) {
 		}
 		case CommandTypeTypeNotFound: {
 			free_shell_arguments(&program->args);
-			free_shell_redirect_settings(&program->settings);
+			free_shell_program_settings(&program->settings);
 
 			ShellCommandNotFound not_found = { .name = program->program.parsed };
 
