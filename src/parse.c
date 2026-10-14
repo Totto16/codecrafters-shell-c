@@ -67,10 +67,20 @@ typedef struct {
 typedef enum : uint8_t {
 	ParseStateDoubleQuoteTypeNormal = 0,
 	ParseStateDoubleQuoteTypeEscape,
+	ParseStateDoubleQuoteTypeVariable,
 } ParseStateDoubleQuoteType;
 
 typedef struct {
+	bool uses_brackets;
+	bool first;
+	size_t start;
+} ParseStateDoubleQuoteVariable;
+
+typedef struct {
 	ParseStateDoubleQuoteType type;
+	union {
+		ParseStateDoubleQuoteVariable variable;
+	} data;
 } ParseStateDoubleQuote;
 
 typedef struct {
@@ -164,10 +174,10 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 					}
 					start = i + 1;
 				} else if(character == '"') {
-					state = (ParseState){
-						.type = ParseStateTypeDoubleQuote,
-						.data = { .double_quote = { .type = ParseStateDoubleQuoteTypeNormal } }
-					};
+					state = (ParseState){ .type = ParseStateTypeDoubleQuote,
+						                  .data = { .double_quote = {
+						                                .type = ParseStateDoubleQuoteTypeNormal,
+						                                .data = {} } } };
 
 					if(start == i) {
 						// no string before it, just advance start
@@ -233,7 +243,16 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 							start = i + 1;
 						} else if(character == '\\') {
 							state.data.double_quote =
-							    (ParseStateDoubleQuote){ .type = ParseStateDoubleQuoteTypeEscape };
+							    (ParseStateDoubleQuote){ .type = ParseStateDoubleQuoteTypeEscape,
+								                         .data = {} };
+						} else if(character == '$') {
+							state.data.double_quote =
+							    (ParseStateDoubleQuote){ .type = ParseStateDoubleQuoteTypeVariable,
+								                         .data = { .variable = {
+								                                       .uses_brackets = false,
+								                                       .first = true,
+								                                       .start = i,
+								                                   } } };
 						} else {
 							const tstr_view orig = (tstr_view){ .data = input.data + i, .len = 1 };
 
@@ -264,6 +283,69 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 
 						state.data.double_quote =
 						    (ParseStateDoubleQuote){ .type = ParseStateDoubleQuoteTypeNormal };
+
+						break;
+					}
+					case ParseStateDoubleQuoteTypeVariable: {
+
+						ParseStateDoubleQuoteVariable* const variable_state =
+						    &state.data.double_quote.data.variable;
+
+						if(variable_state->first) {
+							variable_state->first = false;
+
+							if(character == '{') {
+								variable_state->uses_brackets = true;
+							} else {
+								if(!shell_is_valid_identifier_start(character)) {
+									return (ParsedPipelineResult){
+										.is_ok = false,
+										.data = { .error =
+										              TSTR_LIT("[INTERNAL] invalid data after $: "
+										                       "expected valid identifier to at "
+										                       "least one char long") }
+									};
+								}
+							}
+						} else {
+
+							bool is_finished = false;
+
+							if(variable_state->uses_brackets) {
+								is_finished = character == '}';
+							} else {
+								// this is more complicated, as we NEED a lookahead
+								if(i + 1 < input.len) {
+									const char next_character = input.data[i + 1];
+									is_finished =
+									    !shell_is_valid_identifier_character(next_character);
+								} else {
+									is_finished = true;
+								}
+							}
+
+							if(is_finished) {
+
+								const size_t var_start = variable_state->start;
+
+								const tstr_view variable_name = (tstr_view){
+									.data = input.data + var_start +
+									        (variable_state->uses_brackets ? 2 : 1),
+									.len = i - (var_start + (variable_state->uses_brackets ? 2 : 0))
+								};
+
+								const size_t add_raw_span = i - var_start;
+
+								// TODO
+								tstr_view resolved_variable = variable_name;
+
+								ADD_TO_ACCUMULATOR(resolved_variable, add_raw_span);
+
+								state.data.double_quote =
+								    (ParseStateDoubleQuote){ .type =
+									                             ParseStateDoubleQuoteTypeNormal };
+							}
+						}
 
 						break;
 					}
@@ -877,4 +959,20 @@ ShellParseDataResult shell_parse_data(tstr_view input, const ShellHandle shell) 
 
 	return (ShellParseDataResult){ .type = ShellParseDataResultTypePipeline,
 		                           .data = { .pipeline = pipeline } };
+}
+
+bool shell_is_valid_identifier_start(const char start) {
+	if(start == '_') {
+		return true;
+	}
+
+	return isalpha(start) != 0;
+}
+
+bool shell_is_valid_identifier_character(const char character) {
+	if(character == '_') {
+		return true;
+	}
+
+	return isalnum(character) != 0;
 }

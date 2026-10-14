@@ -534,22 +534,6 @@ static const ShellVariable* shell_get_variable_impl(ShellVariableStorage* storag
 	return variable;
 }
 
-static bool shell_is_valid_identifier_start(const char start) {
-	if(start == '_') {
-		return true;
-	}
-
-	return isalpha(start) != 0;
-}
-
-static bool shell_is_valid_identifier_character(const char character) {
-	if(character == '_') {
-		return true;
-	}
-
-	return isalnum(character) != 0;
-}
-
 static bool shell_is_valid_identifier(tstr_view identifier) {
 	if(identifier.len == 0) {
 		return false;

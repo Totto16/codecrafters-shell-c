@@ -67,3 +67,7 @@ void free_shell_commands_not_found(ShellCommandsNotFound* not_found);
 void free_shell_argument(ShellArgument* arg);
 
 void free_shell_arguments(ShellArguments* args);
+
+bool shell_is_valid_identifier_start(char start);
+
+bool shell_is_valid_identifier_character(char character);
