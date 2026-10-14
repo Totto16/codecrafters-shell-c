@@ -1199,10 +1199,99 @@ static const BuiltinCommand builtin_function_jobs = {
 	.help = jobs_help,
 };
 
+typedef struct {
+	int todo;
+} DeclareData;
+
+TRTTI_DECLARE_TYPE_AS_SUPPORTED(DeclareData)
+
+TRTTI_IMPLEMENTATION_FOR_TYPE(DeclareData)
+
+static ShellParseArgumentsResult declare_parse_arguments(const ShellArguments* args) {
+
+	if(args->length == 0) {
+
+		DeclareData declare_data = { .todo = 0 };
+		RETURN_ARGUMENT(DeclareData, declare_data);
+	}
+
+	return (ShellParseArgumentsResult){
+		.is_ok = false, .data = { .error = TSTR_LIT("declare: too many arguments") }
+	};
+}
+
+static void declare_free_arguments(shell_dynamic_args args) {
+
+	TRTTI_DESTROY(JobsData, args);
+}
+
+static ExitCode declare_invoke(shell_dynamic_args args, const ShellHandle shell, const ShellIO io) {
+
+	UNUSED(args);
+	UNUSED(shell);
+	UNUSED(io);
+
+	return ExitCodeSuccess;
+}
+
+static tstr_static declare_help(void) {
+	return TSTR_STATIC_LIT(
+
+	    "declare: declare [-aAfFgiIlnrtux] [name[=value] ...] or declare -p [-aAfFilnrtux] [name "
+	    "...]\n"
+	    "Set variable values and attributes.\n"
+	    "\n"
+	    "Declare variables and give them attributes.  If no NAMEs are given,\n"
+	    "display the attributes and values of all variables.\n"
+	    "\n"
+	    "Options:\n"
+	    "  -f        restrict action or display to function names and definitions\n"
+	    "  -F        restrict display to function names only (plus line number and\n"
+	    "            source file when debugging)\n"
+	    "  -g        create global variables when used in a shell function; otherwise\n"
+	    "            ignored\n"
+	    "  -I        if creating a local variable, inherit the attributes and value\n"
+	    "            of a variable with the same name at a previous scope\n"
+	    "  -p        display the attributes and value of each NAME\n"
+	    "\n"
+	    "Options which set attributes:\n"
+	    "  -a        to make NAMEs indexed arrays (if supported)\n"
+	    "  -A        to make NAMEs associative arrays (if supported)\n"
+	    "  -i        to make NAMEs have the `integer' attribute\n"
+	    "  -l        to convert the value of each NAME to lower case on assignment\n"
+	    "  -n        make NAME a reference to the variable named by its value\n"
+	    "  -r        to make NAMEs readonly\n"
+	    "  -t        to make NAMEs have the `trace' attribute\n"
+	    "  -u        to convert the value of each NAME to upper case on assignment\n"
+	    "  -x        to make NAMEs export\n"
+	    "\n"
+	    "Using `+' instead of `-' turns off the given attribute, except for a,\n"
+	    "A, and r.\n"
+	    "\n"
+	    "Variables with the integer attribute have arithmetic evaluation (see\n"
+	    "the `let' command) performed when the variable is assigned a value.\n"
+	    "\n"
+	    "When used in a function, `declare' makes NAMEs local, as with the `local'\n"
+	    "command.  The `-g' option suppresses this behavior.\n"
+	    "\n"
+	    "Exit Status:\n"
+	    "Returns success unless an invalid option is supplied or a variable\n"
+	    "assignment error occurs.\n"
+
+	);
+}
+
+static const BuiltinCommand builtin_function_declare = {
+	.name = TSTR_STATIC_LIT_CONST("declare"),
+	.validator = { .parse = declare_parse_arguments, .free = declare_free_arguments },
+	.invoke = declare_invoke,
+	.help = declare_help,
+};
+
 const BuiltinCommand g_builtin_functions[] = {
 	builtin_function_exit,     builtin_function_echo, builtin_function_type,
 	builtin_function_pwd,      builtin_function_cd,   builtin_function_history,
-	builtin_function_complete, builtin_function_jobs,
+	builtin_function_complete, builtin_function_jobs, builtin_function_declare,
 	// TODO(Totto): add help builtin
 };
 
