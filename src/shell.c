@@ -3097,6 +3097,11 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 				ptr++;
 			}
 
+			// TODO: after some debugging, it seems that we get the files in teh cwd instead of the
+			// completer here? why, debug further, we might have chosen to use filenames, as the
+			// script is not executable or something? no idea why we chose the filenames instead of
+			// the completer script??
+
 			fprintf(stderr, "TRYING TO DO DOCKER: array length = %zu\t\n", len);
 
 			fprintf(stderr, "TRYING TO DO DOCKER: array entry0 = %s\t\n", *(ok.array.raw + 1));
