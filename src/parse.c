@@ -896,6 +896,11 @@ static void free_shell_command(ShellCommand* command) {
 	}
 }
 
+void free_shell_completion_data_ok(ShellCompletionDataOk* data) {
+	free_shell_argument(&(data->arg0));
+	free_shell_arguments(&(data->args));
+}
+
 void free_shell_pipeline(ShellParseDataPipeline* pipeline) {
 	for(size_t i = 0; i < TVEC_LENGTH(ShellCommand, pipeline->commands); ++i) {
 
@@ -1113,6 +1118,59 @@ ShellParseDataResult shell_parse_data(tstr_view input, const ShellHandle shell) 
 
 	return (ShellParseDataResult){ .type = ShellParseDataResultTypePipeline,
 		                           .data = { .pipeline = pipeline } };
+}
+
+ShellCompletionDataResult shell_parse_data_for_completion(tstr_view input,
+                                                          const ShellHandle shell) {
+
+	ParsedPipelineResult program_res = shell_parse_input(input, shell);
+
+	if(!program_res.is_ok) {
+		// move program_res.data.error ownership to the ShellParseDataResult struct
+		return (ShellCompletionDataResult){ .is_ok = false,
+			                                .data = { .error = program_res.data.error } };
+	}
+
+	ParsedPipeline parsed_pipeline = program_res.data.pipeline;
+
+	const size_t pipeline_length = TVEC_LENGTH(ParsedProgram, parsed_pipeline.programs);
+
+	if(pipeline_length == 0) {
+		// TODO: free the pipline
+
+		return (ShellCompletionDataResult){ .is_ok = false,
+			                                .data = { .error = TSTR_LIT("Empty command line") } };
+	}
+
+	ParsedProgram* const program =
+	    TVEC_GET_AT_MUT(ParsedProgram, &(parsed_pipeline.programs), (pipeline_length - 1));
+	ASSERT(program != NULL);
+
+	ShellCompletionDataOk ok_data = { .arg0 = program->program, .args = program->args };
+
+	// reset the program args, as we moved out of them
+	program->program = (ShellArgument){ .parsed = tstr_null(), .original = TSTR_EMPTY_VIEW };
+
+	program->args = TVEC_EMPTY(ShellArgument);
+
+	// free the pipline
+	{
+		for(size_t i = 0; i < TVEC_LENGTH(ParsedProgram, parsed_pipeline.programs); ++i) {
+
+			ParsedProgram* const arg =
+			    TVEC_GET_AT_MUT(ParsedProgram, &(parsed_pipeline.programs), i);
+			ASSERT(arg != NULL);
+
+			free_parsed_program(arg);
+		}
+
+		TVEC_FREE(ParsedProgram, &parsed_pipeline.programs);
+	}
+
+	return (ShellCompletionDataResult){ .is_ok = true,
+		                                .data = {
+		                                    .ok = ok_data,
+		                                } };
 }
 
 bool shell_is_valid_identifier_start(const char start) {

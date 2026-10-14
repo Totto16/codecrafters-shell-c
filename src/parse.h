@@ -62,6 +62,23 @@ typedef struct {
 
 NODISCARD ShellParseDataResult shell_parse_data(tstr_view input, const ShellHandle shell);
 
+typedef struct {
+	ShellArgument arg0;
+	ShellArguments args;
+} ShellCompletionDataOk;
+
+typedef struct {
+	bool is_ok;
+	union {
+		ShellCompletionDataOk ok;
+		tstr error;
+	} data;
+} ShellCompletionDataResult;
+
+ShellCompletionDataResult shell_parse_data_for_completion(tstr_view input, const ShellHandle shell);
+
+void free_shell_completion_data_ok(ShellCompletionDataOk* data);
+
 void free_shell_pipeline(ShellParseDataPipeline* pipeline);
 
 void free_shell_commands_not_found(ShellCommandsNotFound* not_found);

@@ -2679,89 +2679,39 @@ NODISCARD static ShellCompletionLineResult shell_resolve_completion_line_impl(Sh
 
 	RTTIAnnotatedValue state_rtti = TRTTI_ANNOTATED_VALUE_GET(ShellState, state);
 	ShellHandle shell_handle = SHELL_HANDLE_SYNCHRONOUS(state_rtti);
-	ShellParseDataResult parse = shell_parse_data(prefix, shell_handle);
+	ShellCompletionDataResult completion_data_res =
+	    shell_parse_data_for_completion(prefix, shell_handle);
 
 	if(g_is_docker) {
-		fprintf(stderr, "TRYING TO DO DOCKER: completion check: '" TSTR_FMT "' parse.type: %d\t",
-		        TSV_FMT_ARGS(prefix), parse.type);
+		fprintf(stderr, "TRYING TO DO DOCKER: completion check: '" TSTR_FMT "' parse.is_ok: %d\t",
+		        TSV_FMT_ARGS(prefix), completion_data_res.is_ok);
 	}
 
-	switch(parse.type) {
-		case ShellParseDataResultTypePipeline: {
-			ShellParseDataPipeline pipeline = parse.data.pipeline;
-
-			ShellCompletionLineResult result = { .is_ok = false, .data = {} };
-
-			// duplicate the last entry
-			const size_t pipeline_length = TVEC_LENGTH(ShellCommand, pipeline.commands);
-
-			if(g_is_docker) {
-				fprintf(stderr, "TRYING TO DO DOCKER: pipeline_length %zu\t", pipeline_length);
-			}
-
-			if(pipeline_length == 0) {
-
-				result = (ShellCompletionLineResult){ .is_ok = false, .data = {} };
-				goto return_result;
-			}
-
-			ShellCommand* const command =
-			    TVEC_GET_AT_MUT(ShellCommand, &(pipeline.commands), (pipeline_length - 1));
-			ASSERT(command != NULL);
-
-			const ShellArgument arg0 = command->arg0;
-
-			const ShellCompletion* completion =
-			    shell_get_completion_impl(&(state->completion_state), &(arg0.parsed));
-
-			if(g_is_docker) {
-				fprintf(stderr, "TRYING TO DO DOCKER: completion ptr %p\t",
-				        (const void*)completion);
-			}
-
-			if(completion == NULL) {
-				result = (ShellCompletionLineResult){ .is_ok = false, .data = {} };
-				goto return_result;
-			}
-
-			result = (ShellCompletionLineResult){ .is_ok = true,
-				                                  .data = { .resolved = {
-				                                                .arg0 = arg0,
-				                                                .args = command->args,
-				                                                .completion = completion,
-				                                            } } };
-
-			// we move the arg0 and args out of the command, before it gets free, so we don't need
-			// to copy it
-			command->arg0 = (ShellArgument){ .parsed = tstr_null(), .original = TSTR_EMPTY_VIEW };
-
-			command->args = TVEC_EMPTY(ShellArgument);
-
-		return_result:
-			free_shell_pipeline(&pipeline);
-
-			return result;
-		}
-		case ShellParseDataResultTypeCommandsNotFound: {
-			free_shell_commands_not_found(&parse.data.not_found);
-
-			return (ShellCompletionLineResult){ .is_ok = false, .data = {} };
-		}
-		case ShellParseDataResultTypeEmpty: {
-			return (ShellCompletionLineResult){ .is_ok = false, .data = {} };
-		}
-		case ShellParseDataResultTypeError: {
-
-			tstr_free(&parse.data.error);
-			return (ShellCompletionLineResult){ .is_ok = false, .data = {} };
-		}
-		default: {
-			RETURNS_VOID shell_global_exit(state, ExitCodeImplementationError);
-
-			RETURNS_VOID shell_print_error("[INTERNAL] Invalid parse result\n");
-			return (ShellCompletionLineResult){ .is_ok = false, .data = {} };
-		}
+	if(!completion_data_res.is_ok) {
+		tstr_free(&completion_data_res.data.error);
+		return (ShellCompletionLineResult){ .is_ok = false, .data = {} };
 	}
+
+	ShellCompletionDataOk ok = completion_data_res.data.ok;
+
+	const ShellCompletion* completion =
+	    shell_get_completion_impl(&(state->completion_state), &(ok.arg0.parsed));
+
+	if(g_is_docker) {
+		fprintf(stderr, "TRYING TO DO DOCKER: completion ptr %p\t", (const void*)completion);
+	}
+
+	if(completion == NULL) {
+		free_shell_completion_data_ok(&ok);
+		return (ShellCompletionLineResult){ .is_ok = false, .data = {} };
+	}
+
+	return (ShellCompletionLineResult){ .is_ok = true,
+		                                .data = { .resolved = {
+		                                              .arg0 = ok.arg0,
+		                                              .args = ok.args,
+		                                              .completion = completion,
+		                                          } } };
 }
 
 static void free_resolved_completion_line(ShellResolvedCompletionLine* resolved) {
