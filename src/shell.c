@@ -45,12 +45,21 @@ typedef struct {
 	tstr histfile;
 } ShellHistorySaveState;
 
+TMAP_DEFINE_MAP_TYPE(tstr, TStr, ShellVariable, ShellVariableHashMap)
+
+typedef TMAP_TYPENAME_MAP(ShellVariableHashMap) ShellVariableHashMap;
+
+typedef struct {
+	ShellVariableHashMap map;
+} ShellVariableStorage;
+
 typedef struct {
 	bool alive;
 	ExitCode result;
 	tstr cwd;
 	ShellHistory history;
 	ShellHistorySaveState history_state;
+	ShellVariableStorage variables;
 } ShellInstanceState;
 
 TMAP_DEFINE_MAP_TYPE(tstr, TStr, ShellCompletion, ShellCompletionHashMap)
@@ -240,12 +249,32 @@ static void free_shell_history(ShellHistory* history) {
 	TVEC_FREE(tstr, &(history->array));
 }
 
+static void free_shell_variable(ShellVariable* variable) {
+	tstr_free(&(variable->key));
+	tstr_free(&(variable->value));
+}
+
+static void free_shell_variable_storage(ShellVariableStorage* storage) {
+	TMAP_TYPENAME_ITER(ShellVariableHashMap)
+	iter = TMAP_ITER_INIT(ShellVariableHashMap, &(storage->map));
+
+	TMAP_TYPENAME_ENTRY(ShellVariableHashMap) value;
+
+	while(TMAP_ITER_NEXT(ShellVariableHashMap, &iter, &value)) {
+		tstr_free(&value.key);
+		free_shell_variable(&value.value);
+	}
+
+	TMAP_FREE(ShellVariableHashMap, &(storage->map));
+}
+
 static void free_shell_instance_state(ShellInstanceState* state) {
 
 	tstr_free(&(state->cwd));
 
 	free_shell_history(&(state->history));
 	tstr_free(&(state->history_state.histfile));
+	free_shell_variable_storage(&(state->variables));
 }
 
 static void free_sub_shell_thread_state(ShellSubShellThreadState* state) {
@@ -490,6 +519,18 @@ static bool shell_remove_completion_impl(ShellCompletionState* state, const tstr
 	return true;
 }
 
+static const ShellVariable* shell_get_variable_impl(ShellVariableStorage* storage,
+                                                    const tstr* name) {
+
+	const ShellVariable* variable = TMAP_GET(ShellVariableHashMap, &(storage->map), *name);
+
+	if(variable == NULL) {
+		return NULL;
+	}
+
+	return variable;
+}
+
 static const ShellCompletion* shell_virtual_fn_sync_get_completion(shell_virtual_context ctx,
                                                                    const tstr* name) {
 	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
@@ -672,6 +713,13 @@ static void shell_virtual_fn_sync_reap_jobs(shell_virtual_context ctx) {
 	shell_global_reap_jobs_impl_only_removal(state);
 }
 
+static const ShellVariable* shell_virtual_fn_sync_get_variable(shell_virtual_context ctx,
+                                                               const tstr* name) {
+	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
+
+	return shell_get_variable_impl(&(state->global.variables), name);
+}
+
 static tstr_view shell_virtual_fn_sync_get_current_working_directory(shell_virtual_context ctx) {
 
 	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
@@ -720,6 +768,7 @@ static const ShellVirtualFunctions g_shell_functions_synchronous = {
 	.get_jobs_size = shell_virtual_fn_sync_get_jobs_size,
 	.get_job = shell_virtual_fn_sync_get_job,
 	.reap_jobs = shell_virtual_fn_sync_reap_jobs,
+	.get_variable = shell_virtual_fn_sync_get_variable,
 };
 
 #define SHELL_HANDLE_SYNCHRONOUS(ctx) \
@@ -862,6 +911,13 @@ static void shell_virtual_fn_subshell_reap_jobs(shell_virtual_context ctx) {
 	// but it's just a noop
 }
 
+static const ShellVariable* shell_virtual_fn_subshell_get_variable(shell_virtual_context ctx,
+                                                                   const tstr* name) {
+	ShellSubShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellSubShellState, ctx);
+
+	return shell_get_variable_impl(&(state->instance.variables), name);
+}
+
 static tstr_view
 shell_virtual_fn_subshell_get_current_working_directory(shell_virtual_context ctx) {
 
@@ -911,6 +967,7 @@ static const ShellVirtualFunctions g_shell_functions_subshell = {
 	.get_jobs_size = shell_virtual_fn_subshell_get_jobs_size,
 	.get_job = shell_virtual_fn_subshell_get_job,
 	.reap_jobs = shell_virtual_fn_subshell_reap_jobs,
+	.get_variable = shell_virtual_fn_subshell_get_variable,
 };
 
 #define SHELL_HANDLE_SUBSHELL(ctx) { .context = (ctx), .function = g_shell_functions_subshell };
@@ -1114,6 +1171,7 @@ static void shell_execute_command_in_subshell(const ShellState* state,
                                                    .cwd = cwd,
                                                    .history = { .array = TVEC_EMPTY(tstr) },
 												   .history_state = {.last_append_idx = 0, .histfile = tstr_null()},
+												   .variables = { .map = TMAP_EMPTY(ShellVariableHashMap) },
                                                },
                                        },
                                    .builtin = builtin,
@@ -1795,6 +1853,7 @@ static ShellSetupResult shell_setup_repl(const char* const program_name) {
 		            .history = { .array = TVEC_EMPTY(tstr) ,
 					} ,
 					.history_state = {.last_append_idx = 0,.histfile = tstr_null() },
+					.variables= { .map = TMAP_EMPTY(ShellVariableHashMap) },
 			},
 		.completion_state =  {
 			.completion_trie = NULL,
@@ -3023,8 +3082,6 @@ ExitCode shell_execute_repl(const size_t argc, char* const* const argv) {
 	return result;
 }
 
-TMAP_IMPLEMENT_MAP_TYPE(tstr, TStr, ShellCompletion, ShellCompletionHashMap)
-
 TMAP_HASH_FUNC_SIG(tstr, TStr) {
 	return TMAP_HASH_BYTES(tstr_cstr(&key), tstr_len(&key));
 }
@@ -3032,5 +3089,9 @@ TMAP_HASH_FUNC_SIG(tstr, TStr) {
 TMAP_EQ_FUNC_SIG(tstr, TStr) {
 	return tstr_eq(&key1, &key2);
 }
+
+TMAP_IMPLEMENT_MAP_TYPE(tstr, TStr, ShellCompletion, ShellCompletionHashMap)
+
+TMAP_IMPLEMENT_MAP_TYPE(tstr, TStr, ShellVariable, ShellVariableHashMap)
 
 TVEC_IMPLEMENT_VEC_TYPE(ShellJobState)

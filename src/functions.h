@@ -98,6 +98,19 @@ typedef ShellJobInfoResult (*shell_fn_get_job)(shell_virtual_context ctx, size_t
 typedef void (*shell_fn_reap_jobs)(shell_virtual_context ctx);
 
 typedef struct {
+	// ATM unused
+	bool _unused : 1;
+} ShellVariableAttributes;
+
+typedef struct {
+	tstr key;
+	tstr value;
+	ShellVariableAttributes attributes;
+} ShellVariable;
+
+typedef const ShellVariable* (*shell_fn_get_variable)(shell_virtual_context ctx, const tstr* name);
+
+typedef struct {
 	shell_fn_get_current_working_directory get_current_working_directory;
 	shell_fn_set_current_working_directory set_current_working_directory;
 	shell_fn_exit exit;
@@ -110,6 +123,7 @@ typedef struct {
 	shell_fn_get_jobs_size get_jobs_size;
 	shell_fn_get_job get_job;
 	shell_fn_reap_jobs reap_jobs;
+	shell_fn_get_variable get_variable;
 } ShellVirtualFunctions;
 
 typedef struct {

@@ -1199,8 +1199,19 @@ static const BuiltinCommand builtin_function_jobs = {
 	.help = jobs_help,
 };
 
+typedef enum : uint8_t {
+	DeclareTypePrint = 0,
+} DeclareType;
+
 typedef struct {
-	int todo;
+	tstr name;
+} DeclarePrint;
+
+typedef struct {
+	DeclareType type;
+	union {
+		DeclarePrint print;
+	} data;
 } DeclareData;
 
 TRTTI_DECLARE_TYPE_AS_SUPPORTED(DeclareData)
@@ -1209,12 +1220,31 @@ TRTTI_IMPLEMENTATION_FOR_TYPE(DeclareData)
 
 static ShellParseArgumentsResult declare_parse_arguments(const ShellArguments* args) {
 
-	if(args->length == 0) {
+	if(args->length == 0 || args->length == 1) {
+		return (ShellParseArgumentsResult){
+			.is_ok = false, .data = { .error = TSTR_LIT("declare: too few arguments") }
+		};
+	} else if(args->length == 2) {
 
-		DeclareData declare_data = { .todo = 0 };
-		RETURN_ARGUMENT(DeclareData, declare_data);
+		const ShellArgument* const arg1 = TVEC_GET_AT(ShellArgument, args, 0);
+		ASSERT(arg1 != NULL);
+
+		const ShellArgument* const arg2 = TVEC_GET_AT(ShellArgument, args, 1);
+		ASSERT(arg2 != NULL);
+
+		if(tstr_eq_cstr(&(arg1->parsed), "-p")) {
+			tstr name = tstr_dup(&(arg2->parsed));
+
+			DeclareData declare_data = { .type = DeclareTypePrint,
+				                         .data = { .print = { .name = name } } };
+			RETURN_ARGUMENT(DeclareData, declare_data);
+		} else {
+
+			return (ShellParseArgumentsResult){
+				.is_ok = false, .data = { .error = TSTR_LIT("declare: invalid arguments") }
+			};
+		}
 	}
-
 	return (ShellParseArgumentsResult){
 		.is_ok = false, .data = { .error = TSTR_LIT("declare: too many arguments") }
 	};
@@ -1222,16 +1252,55 @@ static ShellParseArgumentsResult declare_parse_arguments(const ShellArguments* a
 
 static void declare_free_arguments(shell_dynamic_args args) {
 
-	TRTTI_DESTROY(JobsData, args);
+	DeclareData* declare_data = TRTTI_ANNOTATED_PTR_CAST(DeclareData, args);
+
+	switch(declare_data->type) {
+		case DeclareTypePrint: {
+			tstr_free(&(declare_data->data.print.name));
+			break;
+		}
+		default: {
+			break;
+		}
+	}
+
+	TRTTI_DESTROY(DeclareData, args);
 }
 
 static ExitCode declare_invoke(shell_dynamic_args args, const ShellHandle shell, const ShellIO io) {
 
-	UNUSED(args);
-	UNUSED(shell);
-	UNUSED(io);
+	DeclareData* declare_data = TRTTI_ANNOTATED_PTR_CAST(DeclareData, args);
 
-	return ExitCodeSuccess;
+	switch(declare_data->type) {
+		case DeclareTypePrint: {
+			const DeclarePrint print = declare_data->data.print;
+
+			const ShellVariable* variable = shell.function.get_variable(shell.context, &print.name);
+
+			if(variable == NULL) {
+				int res = SHELL_FPINTF(stdout, "declare: " TSTR_FMT ": not found\n",
+				                       TSTR_FMT_ARGS(print.name));
+				if(res < 0) {
+					RETURN_IO_ERROR("declare");
+				}
+
+				return ExitCodeGenericError;
+			} else {
+
+				int res =
+				    SHELL_FPINTF(stdout, "declare -- '" TSTR_FMT "' " TSTR_FMT "\n",
+				                 TSTR_FMT_ARGS(variable->key), TSTR_FMT_ARGS(variable->value));
+				if(res < 0) {
+					RETURN_IO_ERROR("declare");
+				}
+
+				return ExitCodeSuccess;
+			}
+		}
+		default: {
+			RETURN_IMPL_ERROR("complete", "Invalid complete type");
+		}
+	}
 }
 
 static tstr_static declare_help(void) {
