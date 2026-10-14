@@ -2836,7 +2836,9 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 	RLCompletionResult array =
 	    shell_completion_function_rl_impl(g_rl_internal_completion_state, text, start, end);
 
-	fprintf(stderr, "array.type: %d\n", array.type);
+	if(is_docker) {
+		fprintf(stderr, "array.type: %d\n", array.type);
+	}
 
 	if(array.type == RLCompletionResultTypeError) {
 		shell_global_debug(g_rl_internal_completion_state,
