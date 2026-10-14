@@ -2853,7 +2853,7 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 		fprintf(stderr, "array.type: %d %s\t", array.type,
 		        array.type == RLCompletionResultTypeError   ? "error"
 		        : array.type == RLCompletionResultTypeEmpty ? "empty"
-		                                                    : "ok");
+		                                                    : array.type == RLCompletionResultTypeOk ? "ok": "<ERRORROR>");
 	}
 
 	if(array.type == RLCompletionResultTypeError) {
