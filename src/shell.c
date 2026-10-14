@@ -2884,7 +2884,7 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 	if(end >= 6 && rl_line_buffer[0] == 'd' && rl_line_buffer[1] == 'o' &&
 	   rl_line_buffer[2] == 'c' && rl_line_buffer[3] == 'k' && rl_line_buffer[4] == 'e' &&
 	   rl_line_buffer[5] == 'r') {
-		if(end > start + 1) {
+		if(end >= 9 && (rl_line_buffer[7] == 'p' && rl_line_buffer[8] == 's')) {
 
 		} else {
 			is_docker = true;
