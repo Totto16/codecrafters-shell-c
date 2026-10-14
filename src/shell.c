@@ -473,12 +473,11 @@ static bool shell_set_completion_impl(ShellCompletionState* state, tstr name,
 		// free the entry before overwriting it, as this is the expected behaviour of set rather
 		// then add, also free the name, as it is also duplicate
 
-		tstr_free(&name);
-
 		map_entry = TMAP_INSERT_SLOT(ShellCompletionHashMap, &(state->storage.map), name, true);
 		ASSERT(map_entry != NULL);
 		ASSERT(map_entry != TMAP_WOULD_OVERWRITE);
 
+		tstr_free(&name);
 		free_shell_completion(map_entry);
 
 		*map_entry = completion;
@@ -603,12 +602,11 @@ static bool shell_set_variable_impl(ShellVariableStorage* storage, tstr_view arg
 		// free the entry before overwriting it, as this is the expected behaviour of set rather
 		// then add, also free the key, as it is also duplicate
 
-		tstr_free(&key);
-
 		map_entry = TMAP_INSERT_SLOT(ShellVariableHashMap, &(storage->map), key, true);
 		ASSERT(map_entry != NULL);
 		ASSERT(map_entry != TMAP_WOULD_OVERWRITE);
 
+		tstr_free(&key);
 		free_shell_variable(map_entry);
 
 		*map_entry = variable;
@@ -2004,7 +2002,6 @@ static void free_input_history(ShellState* state) {
 #endif
 
 static void free_completion_storage(ShellCompleteStorage* storage) {
-
 	TMAP_TYPENAME_ITER(ShellCompletionHashMap)
 	iter = TMAP_ITER_INIT(ShellCompletionHashMap, &(storage->map));
 
