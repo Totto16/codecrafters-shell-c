@@ -33,6 +33,9 @@
 #include "./trie.h"
 #include "./utils.h"
 
+// TODO: remove
+int g_is_docker = 0;
+
 typedef struct {
 	ExitCode exit_code;
 } CommandState;
@@ -2154,6 +2157,10 @@ completion_result_array_to_rl_completion_array(TrieResultEntryArray* array,
 	if(array_length == 0) {
 		TVEC_FREE(TrieResultEntry, array);
 
+		if(g_is_docker) {
+			fprintf(stderr, "array_length is 0\n");
+		}
+
 		return (RLCompletionResult){ .type = RLCompletionResultTypeEmpty, .data = {} };
 	}
 
@@ -2830,6 +2837,7 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 	}
 
 	if(is_docker) {
+		g_is_docker = true;
 		fprintf(stderr, "TRYING TO DO DOCKER\n");
 	}
 
