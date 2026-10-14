@@ -2843,19 +2843,19 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 
 	if(is_docker) {
 		g_is_docker = true;
-		fprintf(stderr, "TRYING TO DO DOCKER\t");
+		//fprintf(stderr, "TRYING TO DO DOCKER\t");
 	}
 
 	RLCompletionResult array =
 	    shell_completion_function_rl_impl(g_rl_internal_completion_state, text, start, end);
 
-	if(is_docker) {
+	/* if(is_docker) {
 		fprintf(stderr, "array.type: %d %s\t", array.type,
 		        array.type == RLCompletionResultTypeError   ? "error"
 		        : array.type == RLCompletionResultTypeEmpty ? "empty"
 		        : array.type == RLCompletionResultTypeOk    ? "ok"
 		                                                    : "<ERRORROR>");
-	}
+	} */
 
 	if(array.type == RLCompletionResultTypeError) {
 		shell_global_debug(g_rl_internal_completion_state,
@@ -2883,7 +2883,7 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 				++len;
 			}
 
-			fprintf(stderr, "TRYING TO DO DOCKER: array length = %zu\n", len);
+			fprintf(stderr, "TRYING TO DO DOCKER: array length = %zu\t\n", len);
 		}
 
 		if(ok.suppress_append) {
