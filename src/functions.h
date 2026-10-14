@@ -79,6 +79,7 @@ typedef enum : uint8_t {
 
 typedef struct {
 	size_t id;
+	size_t handle_id;
 	ShellJobRunState run_state;
 	ShellJobType type;
 	tstr_view command;

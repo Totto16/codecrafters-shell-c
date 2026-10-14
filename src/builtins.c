@@ -1152,7 +1152,7 @@ static ExitCode jobs_invoke(shell_dynamic_args args, const ShellHandle shell, co
 		                     : info.run_state == ShellJobRunStateDone  ? "Done"
 		                                                               : "Unknown";
 
-		int res = SHELL_FPINTF(stdout, "[%zu]%c %-*s " TSTR_FMT "\n", (i + 1), marker, 24, status,
+		int res = SHELL_FPINTF(stdout, "[%zu]%c %-*s " TSTR_FMT "\n", info.id, marker, 24, status,
 		                       TSV_FMT_ARGS(info.command));
 
 		if(res < 0) {

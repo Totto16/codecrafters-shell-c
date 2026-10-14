@@ -106,6 +106,7 @@ typedef struct {
 	ShellCommandSynchronization sync;
 	tstr command;
 	bool finished;
+	size_t id;
 } ShellJobState;
 
 TVEC_DEFINE_VEC_TYPE(ShellJobState)
@@ -526,7 +527,8 @@ static ShellJobInfoResult shell_virtual_fn_sync_get_job(shell_virtual_context ct
 	const size_t length = TVEC_LENGTH(ShellJobState, state->jobs_state.array);
 
 	ShellJobInfo info = {
-		.id = 0,
+		.handle_id = 0,
+		.id = arg->id,
 		.run_state = ShellJobRunStateRunning,
 		.type = (length - 1) == idx                   ? ShellJobTypeRecent
 		        : (length > 1 && (length - 2) == idx) ? ShellJobTypeRecent2
@@ -542,7 +544,7 @@ static ShellJobInfoResult shell_virtual_fn_sync_get_job(shell_virtual_context ct
 		case ShellCommandSynchronizationTypeThread: {
 			const ShellCommandSynchronizationThread* const thread = &(arg->sync.data.thread);
 
-			info.id = thread->thread_id;
+			info.handle_id = thread->thread_id;
 
 			void* return_value = NULL;
 			int res = pthread_tryjoin_np(thread->thread_id, &return_value);
@@ -568,7 +570,7 @@ static ShellJobInfoResult shell_virtual_fn_sync_get_job(shell_virtual_context ct
 		case ShellCommandSynchronizationTypeProcess: {
 			const ShellCommandSynchronizationProcess* const process = &(arg->sync.data.process);
 
-			info.id = (size_t)process->handle.child_pid;
+			info.handle_id = (size_t)process->handle.child_pid;
 
 			int status = 0;
 			int res = waitpid(process->handle.child_pid, &status, WNOHANG);
@@ -1169,7 +1171,24 @@ static void shell_execute_command_as_background_job(ShellState* state,
 	formatted_command_ok:
 	}
 
-	ShellJobState job = { .sync = sync, .command = job_command };
+	ShellJobState job = {
+		.sync = sync,
+		.command = job_command,
+		.finished = false,
+		.id = 0,
+	};
+
+	const size_t job_length = TVEC_LENGTH(ShellJobState, state->jobs_state.array);
+
+	// NOTE: this is my understanding of how IDs are assigned, no idea if it's correct
+	if(job_length == 0) {
+		job.id = 1;
+	} else {
+		const ShellJobState* arg =
+		    TVEC_GET_AT(ShellJobState, &(state->jobs_state.array), job_length - 1);
+		ASSERT(arg != NULL);
+		job.id = arg->id + 1;
+	}
 
 	TvecResult res = TVEC_PUSH(ShellJobState, &(state->jobs_state.array), job);
 
@@ -1181,14 +1200,12 @@ static void shell_execute_command_as_background_job(ShellState* state,
 		return;
 	}
 
-	const size_t idx = TVEC_LENGTH(ShellJobState, state->jobs_state.array);
-
 	int fres = 0;
 	if(sync.type == ShellCommandSynchronizationTypeProcess) {
-		fres = fprintf(stdout, "[%zu] %d\n", idx, sync.data.process.handle.child_pid);
+		fres = fprintf(stdout, "[%zu] %d\n", job.id, sync.data.process.handle.child_pid);
 
 	} else if(sync.type == ShellCommandSynchronizationTypeThread) {
-		fres = fprintf(stdout, "[%zu] %zu\n", idx, sync.data.thread.thread_id);
+		fres = fprintf(stdout, "[%zu] %zu\n", job.id, sync.data.thread.thread_id);
 	} else {
 	}
 
