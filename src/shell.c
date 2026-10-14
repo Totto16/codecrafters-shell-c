@@ -2889,7 +2889,8 @@ NODISCARD static char** shell_completion_function_rl(const char* text, int start
 		    (rl_line_buffer[7] == 'x' && rl_line_buffer[8] == 'y' && rl_line_buffer[9] == 'z'))) {
 
 		} else {
-			is_docker = true;
+			// TODO
+			// is_docker = true;
 		}
 	}
 
