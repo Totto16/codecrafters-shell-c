@@ -2447,10 +2447,10 @@ NODISCARD static ShellCompletionLineResult shell_resolve_completion_line_impl(Sh
 			    TVEC_GET_AT_MUT(ShellCommand, &(pipeline.commands), (pipeline_length - 1));
 			ASSERT(command != NULL);
 
-			ShellArgument* arg0 = &(command->arg0);
+			const ShellArgument arg0 = command->arg0;
 
 			const ShellCompletion* completion =
-			    shell_get_completion_impl(&(state->completion_state), &(arg0->parsed));
+			    shell_get_completion_impl(&(state->completion_state), &(arg0.parsed));
 
 			if(completion == NULL) {
 				result = (ShellCompletionLineResult){ .is_ok = false, .data = {} };
@@ -2459,14 +2459,14 @@ NODISCARD static ShellCompletionLineResult shell_resolve_completion_line_impl(Sh
 
 			result = (ShellCompletionLineResult){ .is_ok = true,
 				                                  .data = { .resolved = {
-				                                                .arg0 = *arg0,
+				                                                .arg0 = arg0,
 				                                                .args = command->args,
 				                                                .completion = completion,
 				                                            } } };
 
 			// we move the arg0 and args out of the command, before it gets free, so we don't need
 			// to copy it
-			*arg0 = (ShellArgument){ .parsed = tstr_null(), .original = TSTR_EMPTY_VIEW };
+			command->arg0 = (ShellArgument){ .parsed = tstr_null(), .original = TSTR_EMPTY_VIEW };
 
 			command->args = TVEC_EMPTY(ShellArgument);
 
@@ -2633,6 +2633,14 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 	ShellExecuteSyncCaptureResult exec_result =
 	    invoke_executable_synchronous_capture(path, &invoke_name, &arguments, &envs);
 
+	bool is_docker = false;
+
+	// TODO: this tests some flaky codecarfter teets, is it my fault or the one from the script
+	if(tstr_eq_cstr(&completion.arg0.parsed, "docker")) {
+		fprintf(stderr, "DETECTED DOCKER: \n" TSTR_FMT "\n", TSV_FMT_ARGS(all_text));
+		is_docker = true;
+	}
+
 	free_resolved_completion_line(&completion);
 	free_shell_arguments(&arguments);
 	free_shell_envs(&envs);
@@ -2733,6 +2741,21 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 			    RLCompletionResult){ .type = RLCompletionResultTypeError,
 				                     .data = { .error = TSTR_LIT("OOM in argument allocation") } };
 		}
+	}
+
+	if(is_docker) {
+		fprintf(stderr, "DETECTED DOCKER: \n" TSTR_FMT "\n", TSV_FMT_ARGS(all_text));
+
+		fprintf(stderr, "length: %zu\n", TVEC_LENGTH(TrieResultEntry, array));
+
+		for(size_t i = 0; i < TVEC_LENGTH(TrieResultEntry, array); ++i) {
+
+			const TrieResultEntry* const arg = TVEC_GET_AT(TrieResultEntry, &array, i);
+			ASSERT(arg != NULL);
+
+			fprintf(stderr, "arg: " TSTR_FMT "\n", TSV_FMT_ARGS(arg->name));
+		}
+		fprintf(stderr, "END DOCKER: \n");
 	}
 
 	RLCompletionResult result = completion_result_array_to_rl_completion_array(&array, prefix);
