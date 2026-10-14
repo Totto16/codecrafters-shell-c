@@ -360,7 +360,7 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 	}
 
 	ParsedProgram
-	    current_program = { .program = { .parsed = tstr_null(), .original = TSTR_TSV("") },
+	    current_program = { .program = { .parsed = tstr_null(), .original = TSTR_EMPTY_VIEW },
 		                    .args = TVEC_EMPTY(ShellArgument),
 		                    .settings = {
 		                        .redirect = { .stdout = { .type = ShellRedirectLocationTypeNone },
@@ -513,7 +513,7 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 
 			// we moved this out
 			current_program =
-			    (ParsedProgram){ .program = { .parsed = tstr_null(), .original = TSTR_TSV("") },
+			    (ParsedProgram){ .program = { .parsed = tstr_null(), .original = TSTR_EMPTY_VIEW },
 				                 .args = TVEC_EMPTY(ShellArgument),
 				                 .settings = {
 				                     .redirect = { .stdout = { .type =
@@ -591,7 +591,7 @@ static ParsedPipelineResult shell_parse_input(tstr_view input, const ShellHandle
 
 		// we moved this out
 		current_program =
-		    (ParsedProgram){ .program = { .parsed = tstr_null(), .original = TSTR_TSV("") },
+		    (ParsedProgram){ .program = { .parsed = tstr_null(), .original = TSTR_EMPTY_VIEW },
 			                 .args = TVEC_EMPTY(ShellArgument),
 			                 .settings = {
 			                     .redirect = { .stdout = { .type = ShellRedirectLocationTypeNone,

@@ -94,6 +94,7 @@ typedef struct {
 
 typedef struct {
 	ShellCommandSynchronization sync;
+	tstr command;
 } ShellJobState;
 
 TVEC_DEFINE_VEC_TYPE(ShellJobState)
@@ -399,6 +400,72 @@ static bool shell_virtual_fn_sync_remove_completion(shell_virtual_context ctx, c
 	return shell_remove_completion_impl(&(state->completion_state), name);
 }
 
+static size_t shell_virtual_fn_sync_get_jobs_size(shell_virtual_context ctx) {
+
+	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
+
+	return TVEC_LENGTH(ShellJobState, state->jobs_state.array);
+}
+
+static ShellJobInfoResult shell_virtual_fn_sync_get_job(shell_virtual_context ctx, size_t idx) {
+
+	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
+
+	const ShellJobState* const arg = TVEC_GET_AT(ShellJobState, &(state->jobs_state.array), idx);
+	if(arg == NULL) {
+		return (ShellJobInfoResult){ .is_ok = false,
+			                         .data = { .error = TSTR_LIT("idx out of bounds") } };
+	}
+
+	const size_t length = TVEC_LENGTH(ShellJobState, state->jobs_state.array);
+
+	ShellJobInfo info = {
+		.id = 0,
+		.run_state = ShellJobRunStateRunning,
+		.type = (length - 1) == idx                   ? ShellJobTypeRecent
+		        : (length > 1 && (length - 2) == idx) ? ShellJobTypeRecent2
+		                                              : ShellJobTypeNormal,
+		.command = tstr_as_view(&(arg->command)),
+	};
+
+	switch(arg->sync.type) {
+		case ShellCommandSynchronizationTypeError: {
+			return (ShellJobInfoResult){ .is_ok = false,
+				                         .data = { .error = arg->sync.data.error } };
+		}
+		case ShellCommandSynchronizationTypeThread: {
+			const ShellCommandSynchronizationThread* const thread = &(arg->sync.data.thread);
+
+			// todo get thread state
+
+			info.id = thread->thread_id;
+			info.run_state = ShellJobRunStateRunning;
+
+			break;
+		}
+		case ShellCommandSynchronizationTypeProcess: {
+			const ShellCommandSynchronizationProcess* const process = &(arg->sync.data.process);
+
+			int status = 0;
+			int res = waitpid(process->handle.child_pid, &status, WNOHANG);
+			if(res < 0) {
+				return (ShellJobInfoResult){ .is_ok = false,
+					                         .data = { .error = TSTR_LIT("internal error") } };
+			}
+
+			info.id = (size_t)process->handle.child_pid;
+			info.run_state = res == 0 ? ShellJobRunStateRunning : ShellJobRunStateTerminated;
+
+			break;
+		}
+		default: {
+			break;
+		}
+	}
+
+	return (ShellJobInfoResult){ .is_ok = true, .data = { .ok = info } };
+}
+
 static tstr_view shell_virtual_fn_sync_get_current_working_directory(shell_virtual_context ctx) {
 
 	ShellState* state = TRTTI_ANNOTATED_VALUE_CAST(ShellState, ctx);
@@ -444,6 +511,8 @@ static const ShellVirtualFunctions g_shell_functions_synchronous = {
 	.get_completion = shell_virtual_fn_sync_get_completion,
 	.set_completion = shell_virtual_fn_sync_set_completion,
 	.remove_completion = shell_virtual_fn_sync_remove_completion,
+	.get_jobs_size = shell_virtual_fn_sync_get_jobs_size,
+	.get_job = shell_virtual_fn_sync_get_job,
 };
 
 #define SHELL_HANDLE_SYNCHRONOUS(ctx) \
@@ -550,6 +619,34 @@ static bool shell_virtual_fn_subshell_set_completion(shell_virtual_context ctx, 
 	return false;
 }
 
+static bool shell_virtual_fn_subshell_remove_completion(shell_virtual_context ctx,
+                                                        const tstr* name) {
+
+	UNUSED(ctx);
+	UNUSED(name);
+
+	// Not supported in subshells yet
+	return false;
+}
+
+static size_t shell_virtual_fn_subshell_get_jobs_size(shell_virtual_context ctx) {
+
+	UNUSED(ctx);
+
+	// Not supported in subshells yet
+	return 0;
+}
+
+static ShellJobInfoResult shell_virtual_fn_subshell_get_job(shell_virtual_context ctx, size_t idx) {
+
+	UNUSED(ctx);
+	UNUSED(idx);
+
+	// Not supported in subshells yet
+	return (ShellJobInfoResult){ .is_ok = false,
+		                         .data = { .error = TSTR_LIT("not supported in subshells") } };
+}
+
 static tstr_view
 shell_virtual_fn_subshell_get_current_working_directory(shell_virtual_context ctx) {
 
@@ -595,6 +692,9 @@ static const ShellVirtualFunctions g_shell_functions_subshell = {
 	.process_history_file = shell_virtual_fn_subshell_process_history_file,
 	.get_completion = shell_virtual_fn_subshell_get_completion,
 	.set_completion = shell_virtual_fn_subshell_set_completion,
+	.remove_completion = shell_virtual_fn_subshell_remove_completion,
+	.get_jobs_size = shell_virtual_fn_subshell_get_jobs_size,
+	.get_job = shell_virtual_fn_subshell_get_job,
 };
 
 #define SHELL_HANDLE_SUBSHELL(ctx) { .context = (ctx), .function = g_shell_functions_subshell };
@@ -908,7 +1008,34 @@ static void shell_execute_command_as_background_job(ShellState* state,
 		return;
 	}
 
-	ShellJobState job = { .sync = sync };
+	tstr job_command = tstr_from("");
+
+	{
+		TStrResult str_res = tstr_fmt(&job_command, TSTR_FMT, TSTR_FMT_ARGS(command->arg0.parsed));
+
+		if(str_res != TStrResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/
+			goto err_formatted_command;
+		}
+		for(size_t i = 0; i < TVEC_LENGTH(ShellArgument, command->args); ++i) {
+
+			const ShellArgument* const arg = TVEC_GET_AT(ShellArgument, &(command->args), i);
+			ASSERT(arg != NULL);
+
+			str_res = tstr_fmt(&job_command, " " TSTR_FMT, TSTR_FMT_ARGS(arg->parsed));
+
+			if(str_res != TStrResultOk) { /* NOLINT(readability-implicit-bool-conversion)*/
+				goto err_formatted_command;
+			}
+		}
+
+		goto formatted_command_ok;
+
+	err_formatted_command:
+		job_command = TSTR_LIT("<Internal Error>");
+	formatted_command_ok:
+	}
+
+	ShellJobState job = { .sync = sync, .command = job_command };
 
 	TvecResult res = TVEC_PUSH(ShellJobState, &(state->jobs_state.array), job);
 
@@ -1130,7 +1257,7 @@ static void shell_execute_pipeline(const ShellParseDataPipeline* pipeline, Shell
 	for(size_t i = 0; i < TVEC_LENGTH(ShellCommand, pipeline->commands); ++i) {
 
 		// just walk linearly through all of them we need to wait nevertheless for
-		// all, so might as well do left to right in a pipline, no nened for fancy
+		// all, so might as well do left to right in a pipline, no need for fancy
 		// waitpid(WNOHANG) or condition variables for threads
 
 		ShellCommandSynchronization* const sync =
@@ -1536,7 +1663,53 @@ static void free_shell_completion_state(ShellCompletionState* completion_state) 
 static void free_shell_job_state(ShellJobState* arg) {
 	// TODO: close this process with kill
 
-	UNUSED(arg);
+	tstr_free(&arg->command);
+
+	switch(arg->sync.type) {
+		case ShellCommandSynchronizationTypeError: {
+			tstr_free(&arg->sync.data.error);
+			break;
+		}
+		case ShellCommandSynchronizationTypeThread: {
+			ShellCommandSynchronizationThread* const thread = &(arg->sync.data.thread);
+
+			int res = pthread_kill(thread->thread_id, SIGKILL);
+
+			if(res != 0) {
+				// a error occurred, we just ignore it, but we don't use join
+			} else {
+
+				void* return_value = NULL;
+				res = pthread_join(thread->thread_id, &return_value);
+
+				if(res != 0) {
+					// ignore error
+				} else {
+
+					// only when the process exited,
+					RETURNS_VOID free_sub_shell_thread_state(thread->state);
+				}
+			}
+
+			break;
+		}
+		case ShellCommandSynchronizationTypeProcess: {
+			ShellCommandSynchronizationProcess* const process = &(arg->sync.data.process);
+
+			int res = kill(process->handle.child_pid, SIGKILL);
+
+			int status = 0;
+			res = waitpid(process->handle.child_pid, &status, 0);
+			if(res < 0) {
+				// ignore error
+			}
+
+			break;
+		}
+		default: {
+			break;
+		}
+	}
 }
 
 static void free_shell_jobs_state(ShellJobsState* states) {
@@ -2207,7 +2380,7 @@ NODISCARD static ShellCompletionLineResult shell_resolve_completion_line_impl(Sh
 
 			// we move the arg0 and args out of the command, before it gets free, so we don't need
 			// to copy it
-			*arg0 = (ShellArgument){ .parsed = tstr_null(), .original = TSTR_TSV("") };
+			*arg0 = (ShellArgument){ .parsed = tstr_null(), .original = TSTR_EMPTY_VIEW };
 
 			command->args = TVEC_EMPTY(ShellArgument);
 
@@ -2244,7 +2417,7 @@ static void free_resolved_completion_line(ShellResolvedCompletionLine* resolved)
 }
 
 NODISCARD static ShellArgument shell_dup_shell_argument(const ShellArgument* arg) {
-	ShellArgument result = { .parsed = tstr_dup(&(arg->parsed)), .original = TSTR_TSV("") };
+	ShellArgument result = { .parsed = tstr_dup(&(arg->parsed)), .original = TSTR_EMPTY_VIEW };
 
 	result.original = tstr_as_view(&result.parsed);
 
@@ -2436,12 +2609,12 @@ rl_complete_completion_impl(ShellResolvedCompletionLine completion, tstr_view pr
 
 	while(stdout_data.len != 0) {
 
-		tstr_view data_to_add = TSTR_TSV("");
+		tstr_view data_to_add = TSTR_EMPTY_VIEW;
 
 		if(offset >= stdout_data.len) {
 			// we are at the end, add the entire thing
 			data_to_add = stdout_data;
-			stdout_data = TSTR_TSV("");
+			stdout_data = TSTR_EMPTY_VIEW;
 		} else {
 			// check if we are at a newline
 			const char character = stdout_data.data[offset];

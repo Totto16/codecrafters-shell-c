@@ -1128,8 +1128,35 @@ static void jobs_free_arguments(shell_dynamic_args args) {
 static ExitCode jobs_invoke(shell_dynamic_args args, const ShellHandle shell, const ShellIO io) {
 
 	UNUSED(args);
-	UNUSED(io);
-	UNUSED(shell);
+
+	size_t jobs_size = shell.function.get_jobs_size(shell.context);
+
+	for(size_t i = 0; i < jobs_size; ++i) {
+
+		ShellJobInfoResult job_result = shell.function.get_job(shell.context, i);
+
+		if(!job_result.is_ok) {
+			PRINT_ERROR_MESSAGE("jobs", "jobs: " TSTR_FMT "\n",
+			                    TSTR_FMT_ARGS(job_result.data.error));
+
+			tstr_free(&job_result.data.error);
+			RETURN_IMPL_ERROR("jobs", "jobs process error");
+		}
+		const ShellJobInfo info = job_result.data.ok;
+
+		const char marker = info.type == ShellJobTypeRecent    ? '+'
+		                    : info.type == ShellJobTypeRecent2 ? '-'
+		                                                       : ' ';
+
+		const char* status = info.run_state == ShellJobRunStateRunning ? "Running" : "TODO";
+
+		int res = SHELL_FPINTF(stdout, "[%zu]%c %-*s " TSTR_FMT "\n", (i + 1), marker, 24, status,
+		                       TSV_FMT_ARGS(info.command));
+
+		if(res < 0) {
+			RETURN_IO_ERROR("jobs");
+		}
+	}
 
 	return ExitCodeSuccess;
 }

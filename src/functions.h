@@ -64,6 +64,36 @@ typedef bool (*shell_fn_set_completion)(shell_virtual_context ctx, tstr name,
 
 typedef bool (*shell_fn_remove_completion)(shell_virtual_context ctx, const tstr* name);
 
+typedef size_t (*shell_fn_get_jobs_size)(shell_virtual_context ctx);
+
+typedef enum : uint8_t {
+	ShellJobRunStateRunning = 0,
+	ShellJobRunStateTerminated,
+} ShellJobRunState;
+
+typedef enum : uint8_t {
+	ShellJobTypeRecent = 0,
+	ShellJobTypeRecent2,
+	ShellJobTypeNormal,
+} ShellJobType;
+
+typedef struct {
+	size_t id;
+	ShellJobRunState run_state;
+	ShellJobType type;
+	tstr_view command;
+} ShellJobInfo;
+
+typedef struct {
+	bool is_ok;
+	union {
+		ShellJobInfo ok;
+		tstr error;
+	} data;
+} ShellJobInfoResult;
+
+typedef ShellJobInfoResult (*shell_fn_get_job)(shell_virtual_context ctx, size_t idx);
+
 typedef struct {
 	shell_fn_get_current_working_directory get_current_working_directory;
 	shell_fn_set_current_working_directory set_current_working_directory;
@@ -74,6 +104,8 @@ typedef struct {
 	shell_fn_get_completion get_completion;
 	shell_fn_set_completion set_completion;
 	shell_fn_remove_completion remove_completion;
+	shell_fn_get_jobs_size get_jobs_size;
+	shell_fn_get_job get_job;
 } ShellVirtualFunctions;
 
 typedef struct {
